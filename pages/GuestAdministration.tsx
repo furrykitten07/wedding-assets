@@ -105,11 +105,15 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error && !error.message?.includes('schema cache')) {
+        throw error;
+      }
       setGuests(data || []);
     } catch (err: any) {
       console.error('Fetch buku tamu error:', err);
-      toast.error('Gagal mengambil data buku tamu: ' + err.message);
+      if (!err?.message?.includes('schema cache')) {
+        toast.error('Gagal mengambil data buku tamu: ' + (err?.message || 'Error'));
+      }
     } finally {
       setLoading(false);
     }
@@ -860,3 +864,4 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 };
 
 export default GuestAdministration;
+

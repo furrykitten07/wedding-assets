@@ -200,10 +200,240 @@ const localSupabase = {
   }
 };
 
+class BukuTamuCloudBridge {
+  private client: any;
+  private action: 'select' | 'insert' | 'update' | 'delete' = 'select';
+  private selectCol: string = '*';
+  private orderCol?: string;
+  private orderAsc?: boolean;
+  private eqFilters: Record<string, any> = {};
+  private payload: any = null;
+
+  constructor(client: any) {
+    this.client = client;
+  }
+
+  select(columns: string = '*', _options?: any) {
+    this.action = 'select';
+    this.selectCol = columns;
+    return this;
+  }
+
+  order(column: string, options?: { ascending?: boolean }) {
+    this.orderCol = column;
+    this.orderAsc = options?.ascending !== false;
+    return this;
+  }
+
+  eq(column: string, value: any) {
+    this.eqFilters[column] = value;
+    return this;
+  }
+
+  insert(records: any | any[]) {
+    this.action = 'insert';
+    this.payload = records;
+    return this;
+  }
+
+  update(updates: any) {
+    this.action = 'update';
+    this.payload = updates;
+    return this;
+  }
+
+  delete() {
+    this.action = 'delete';
+    return this;
+  }
+
+  async execute(): Promise<{ data: any; error: any }> {
+    const SYSTEM_GUEST_RECEIVER = 'guest_pass_data@wedding.system';
+
+    // 1. Coba tabel native 'buku_tamu' terlebih dahulu jika sudah dibuat di Supabase
+    try {
+      if (this.action === 'select') {
+        let q = this.client.from('buku_tamu').select(this.selectCol);
+        if (this.orderCol) q = q.order(this.orderCol, { ascending: this.orderAsc });
+        Object.entries(this.eqFilters).forEach(([col, val]) => {
+          q = q.eq(col, val);
+        });
+        const res = await q;
+        if (!res.error) return res;
+        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+          return res;
+        }
+      } else if (this.action === 'insert') {
+        const res = await this.client.from('buku_tamu').insert(this.payload).select();
+        if (!res.error) return res;
+        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+          return res;
+        }
+      } else if (this.action === 'update') {
+        let q = this.client.from('buku_tamu').update(this.payload);
+        Object.entries(this.eqFilters).forEach(([col, val]) => {
+          q = q.eq(col, val);
+        });
+        const res = await q.select();
+        if (!res.error) return res;
+        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+          return res;
+        }
+      } else if (this.action === 'delete') {
+        let q = this.client.from('buku_tamu').delete();
+        Object.entries(this.eqFilters).forEach(([col, val]) => {
+          q = q.eq(col, val);
+        });
+        const res = await q;
+        if (!res.error) return res;
+        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+          return res;
+        }
+      }
+    } catch {
+      // Abaikan dan gunakan Cloud Bridge cadangan
+    }
+
+    // 2. Cloud Fallback Bridge: Menggunakan tabel 'messages' yang sudah ada di Supabase
+    if (this.action === 'select') {
+      try {
+        let q = this.client.from('messages').select('*').eq('receiver_email', SYSTEM_GUEST_RECEIVER);
+        if (this.eqFilters.ticket_code) {
+          q = q.eq('sender_email', this.eqFilters.ticket_code);
+        }
+        if (this.eqFilters.id) {
+          q = q.eq('id', this.eqFilters.id);
+        }
+        if (this.orderCol === 'created_at') {
+          q = q.order('created_at', { ascending: this.orderAsc ?? false });
+        }
+        const { data, error } = await q;
+        if (error) return { data: [], error: null };
+
+        const mapped = (data || []).map((row: any) => {
+          let parsed: any = {};
+          try {
+            parsed = JSON.parse(row.content);
+          } catch {
+            parsed = {};
+          }
+          return {
+            id: row.id,
+            ticket_code: row.sender_email || parsed.ticket_code,
+            nama_tamu: parsed.nama_tamu || 'Tamu Undangan',
+            no_whatsapp: parsed.no_whatsapp || '',
+            pihak: parsed.pihak || 'Pihak Fikri',
+            jumlah_tamu: Number(parsed.jumlah_tamu) || 1,
+            ucapan: parsed.ucapan || '',
+            is_attended: Boolean(row.is_read || parsed.is_attended),
+            attended_at: parsed.attended_at || null,
+            created_at: row.created_at
+          };
+        });
+
+        return { data: mapped, error: null };
+      } catch {
+        return { data: [], error: null };
+      }
+    }
+
+    if (this.action === 'insert') {
+      try {
+        const rawList = Array.isArray(this.payload) ? this.payload : [this.payload];
+        const results: any[] = [];
+        for (const item of rawList) {
+          const code = item.ticket_code || `FN-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+          const msgPayload = {
+            sender_email: code,
+            receiver_email: SYSTEM_GUEST_RECEIVER,
+            content: JSON.stringify(item),
+            is_read: Boolean(item.is_attended)
+          };
+          const { data, error } = await this.client.from('messages').insert([msgPayload]).select();
+          if (error) throw error;
+          const insertedRow = data?.[0];
+          results.push({
+            ...item,
+            id: insertedRow?.id || crypto.randomUUID(),
+            ticket_code: code,
+            created_at: insertedRow?.created_at || new Date().toISOString()
+          });
+        }
+        return { data: results, error: null };
+      } catch (err: any) {
+        return { data: null, error: err };
+      }
+    }
+
+    if (this.action === 'update') {
+      try {
+        let findQ = this.client.from('messages').select('*').eq('receiver_email', SYSTEM_GUEST_RECEIVER);
+        if (this.eqFilters.id) {
+          findQ = findQ.eq('id', this.eqFilters.id);
+        } else if (this.eqFilters.ticket_code) {
+          findQ = findQ.eq('sender_email', this.eqFilters.ticket_code);
+        }
+
+        const { data: rows } = await findQ;
+        if (rows && rows.length > 0) {
+          for (const row of rows) {
+            let currentData: any = {};
+            try {
+              currentData = JSON.parse(row.content);
+            } catch {
+              currentData = {};
+            }
+            const merged = { ...currentData, ...this.payload };
+            await this.client.from('messages').update({
+              content: JSON.stringify(merged),
+              is_read: this.payload.is_attended !== undefined ? Boolean(this.payload.is_attended) : row.is_read
+            }).eq('id', row.id);
+          }
+        }
+        return { data: rows || [], error: null };
+      } catch (err: any) {
+        return { data: null, error: err };
+      }
+    }
+
+    if (this.action === 'delete') {
+      try {
+        let delQ = this.client.from('messages').delete().eq('receiver_email', SYSTEM_GUEST_RECEIVER);
+        if (this.eqFilters.id) {
+          delQ = delQ.eq('id', this.eqFilters.id);
+        } else if (this.eqFilters.ticket_code) {
+          delQ = delQ.eq('sender_email', this.eqFilters.ticket_code);
+        }
+        await delQ;
+        return { data: null, error: null };
+      } catch (err: any) {
+        return { data: null, error: err };
+      }
+    }
+
+    return { data: null, error: null };
+  }
+
+  then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+}
+
 const cloudSupabase = isCloudMode ? createClient(rawUrl, rawKey) : null;
 
+// Proxy client agar buku_tamu otomatis memiliki fallback jembatan aman ke database Supabase
+const wrappedCloudSupabase = cloudSupabase ? {
+  ...cloudSupabase,
+  from: (tableName: string) => {
+    if (tableName === 'buku_tamu') {
+      return new BukuTamuCloudBridge(cloudSupabase);
+    }
+    return cloudSupabase.from(tableName);
+  }
+} : null;
+
 // Export client: Menggunakan Supabase resmi jika di Cloud, atau adapter lokal jika di Lokal
-export const supabase: any = isCloudMode ? cloudSupabase! : localSupabase;
+export const supabase: any = isCloudMode ? wrappedCloudSupabase! : localSupabase;
 export const isSupabaseConfigured = isCloudMode;
 
 /**

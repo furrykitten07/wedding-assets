@@ -19,14 +19,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
-  Filter,
-  Maximize2,
   Volume2,
   VolumeX,
   Printer,
   ExternalLink,
-  SlidersHorizontal,
-  Info
+  X,
+  Info,
+  Maximize2,
+  Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase, logActivity } from '../supabase';
@@ -62,7 +62,7 @@ const playChime = (isSuccess: boolean = true) => {
       osc.stop(ctx.currentTime + 0.3);
     }
   } catch {
-    // ignore audio block
+    // ignore
   }
 };
 
@@ -75,15 +75,15 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
   const [loading, setLoading] = useState(true);
   const [manualCode, setManualCode] = useState('');
 
-  // Scanner state
-  const [isScanning, setIsScanning] = useState(true);
+  // Scanner Modal state
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [cameras, setCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingRef = useRef(false);
 
-  // Result popup state
+  // Result popup state inside modal
   const [scanResult, setScanResult] = useState<{
     guest: BukuTamu;
     wasAlreadyAttended: boolean;
@@ -126,14 +126,13 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     fetchGuests();
   }, []);
 
-  // Enumerate available cameras
+  // Enumerate available cameras on initial load
   useEffect(() => {
     const detectCameras = async () => {
       try {
         const devices = await Html5Qrcode.getCameras();
         if (devices && devices.length > 0) {
           setCameras(devices);
-          // Prefer back camera if available, otherwise first camera (laptop webcam)
           const backCam = devices.find((d) =>
             d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear')
           );
@@ -189,7 +188,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         toast.error(`Kode "${code}" tidak ditemukan!`);
         setTimeout(() => {
           isProcessingRef.current = false;
-        }, 2200);
+        }, 2000);
         return;
       }
 
@@ -245,7 +244,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     }
   };
 
-  // Toggle Attendance directly from table
+  // Toggle Attendance from table
   const handleToggleAttendance = async (guest: BukuTamu) => {
     try {
       const newStatus = !guest.is_attended;
@@ -302,87 +301,98 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     }
   };
 
-  // Camera Lifecycle
-  useEffect(() => {
-    let mounted = true;
-
-    const startCamera = async () => {
-      if (!isScanning) return;
-
-      // Stop previous instance if running
-      if (scannerRef.current) {
-        try {
-          if (scannerRef.current.isScanning) {
-            await scannerRef.current.stop();
-          }
-          scannerRef.current.clear();
-        } catch (e) {
-          // ignore
-        }
-        scannerRef.current = null;
-      }
-
+  // Stop camera helper
+  const stopAndClearScanner = async () => {
+    if (scannerRef.current) {
       try {
-        // Initialize with hardware BarcodeDetector acceleration
-        const html5QrCode = new Html5Qrcode('scanner-desk-reader', {
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true
-          },
-          verbose: false
-        });
-        scannerRef.current = html5QrCode;
-
-        // Configuration: Dynamic large scanbox for laptop/desktop
-        const qrboxFunction = (viewfinderWidth: number, viewfinderHeight: number) => {
-          const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          // Large scanning zone (80% of viewport) so phone can be held naturally
-          const size = Math.floor(minEdge * 0.8);
-          return { width: Math.max(size, 260), height: Math.max(size, 260) };
-        };
-
-        const cameraConfig = selectedCameraId
-          ? selectedCameraId
-          : { facingMode: 'environment' };
-
-        await html5QrCode.start(
-          cameraConfig,
-          {
-            fps: 15,
-            qrbox: qrboxFunction
-          },
-          (decodedText) => {
-            if (mounted && !isProcessingRef.current) {
-              handleProcessScan(decodedText);
-            }
-          },
-          () => {}
-        );
-      } catch (err: any) {
-        console.warn('Camera start error:', err);
-        if (mounted) {
-          toast.error('Tidak dapat mengakses kamera: ' + (err?.message || err));
-          setIsScanning(false);
-        }
-      }
-    };
-
-    startCamera();
-
-    return () => {
-      mounted = false;
-      if (scannerRef.current) {
         if (scannerRef.current.isScanning) {
-          scannerRef.current
-            .stop()
-            .then(() => {
-              scannerRef.current?.clear();
-              scannerRef.current = null;
-            })
-            .catch(() => {});
+          await scannerRef.current.stop();
         }
+        scannerRef.current.clear();
+      } catch (e) {
+        // ignore
+      }
+      scannerRef.current = null;
+    }
+    const el = document.getElementById('scanner-modal-reader');
+    if (el) el.innerHTML = '';
+  };
+
+  // Single Camera Lifecycle inside Modal
+  useEffect(() => {
+    let isMounted = true;
+
+    if (isScannerModalOpen) {
+      const startScanner = async () => {
+        await stopAndClearScanner();
+        if (!isMounted) return;
+
+        const container = document.getElementById('scanner-modal-reader');
+        if (!container) return;
+        container.innerHTML = '';
+
+        try {
+          const html5QrCode = new Html5Qrcode('scanner-modal-reader', {
+            experimentalFeatures: {
+              useBarCodeDetectorIfSupported: true
+            },
+            verbose: false
+          });
+          scannerRef.current = html5QrCode;
+
+          const cameraConfig = selectedCameraId
+            ? selectedCameraId
+            : { facingMode: 'environment' };
+
+          await html5QrCode.start(
+            cameraConfig,
+            {
+              fps: 15,
+              qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+                const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                const size = Math.floor(minEdge * 0.75);
+                return { width: Math.max(size, 260), height: Math.max(size, 260) };
+              }
+            },
+            (decodedText) => {
+              if (isMounted && !isProcessingRef.current) {
+                handleProcessScan(decodedText);
+              }
+            },
+            () => {}
+          );
+        } catch (err: any) {
+          console.warn('Failed to start camera in modal:', err);
+          if (isMounted) {
+            toast.error('Gagal membuka kamera: ' + (err?.message || err));
+          }
+        }
+      };
+
+      const timer = setTimeout(() => {
+        startScanner();
+      }, 150);
+
+      return () => {
+        isMounted = false;
+        clearTimeout(timer);
+        stopAndClearScanner();
+      };
+    } else {
+      stopAndClearScanner();
+    }
+  }, [isScannerModalOpen, selectedCameraId]);
+
+  // Close modal on ESC key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isScannerModalOpen) {
+        setIsScannerModalOpen(false);
       }
     };
-  }, [isScanning, selectedCameraId]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isScannerModalOpen]);
 
   // Calculations & Metrics
   const totalRegistered = guests.length;
@@ -417,7 +427,6 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     ? filteredGuests 
     : filteredGuests.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  // Reset to page 1 on filter/search change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterStatus, filterPihak, pageSize]);
@@ -433,67 +442,29 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
             <span>Portal Petugas Meja Resepsi</span>
           </div>
           <h1 className="font-serif text-2xl md:text-3xl font-bold text-maroon">
-            Scanner Kehadiran Tamu (Grand Screen)
+            Scanner Kehadiran Tamu
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Akun Petugas: <span className="font-bold text-maroon">{userEmail.split('@')[0].toUpperCase()}</span> • Arahkan kamera ke barcode tamu undangan
+            Akun Petugas: <span className="font-bold text-maroon">{userEmail.split('@')[0].toUpperCase()}</span> • Buka scanner kamera atau cari nama di tabel
           </p>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Camera Selector Dropdown (Laptop & Multi-Camera support) */}
-          {cameras.length > 1 && (
-            <select
-              value={selectedCameraId}
-              onChange={(e) => setSelectedCameraId(e.target.value)}
-              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 outline-none focus:border-maroon max-w-[200px] truncate"
-              title="Pilih Kamera / Webcam"
-            >
-              {cameras.map((c) => (
-                <option key={c.id} value={c.id}>
-                  📷 {c.label || `Kamera ${c.id.substring(0, 5)}`}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* Sound Toggle */}
+        {/* Primary Action Button: Open Scanner Modal */}
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => {
-              setSoundEnabled(!soundEnabled);
-              toast(soundEnabled ? 'Bunyi Chime Dinonaktifkan' : 'Bunyi Chime Diaktifkan', { icon: '🔔' });
-            }}
-            className={`p-2.5 rounded-xl border transition-colors ${
-              soundEnabled
-                ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-                : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
-            }`}
-            title={soundEnabled ? 'Matikan Suara Chime' : 'Nyalakan Suara Chime'}
+            onClick={() => setIsScannerModalOpen(true)}
+            className="px-5 py-3 rounded-2xl bg-gradient-to-r from-maroon via-maroon-800 to-[#550B14] hover:opacity-95 text-gold border border-gold-400 font-bold text-xs shadow-lg shadow-maroon/20 transition-all flex items-center space-x-2 active:scale-95 cursor-pointer"
           >
-            {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            <Camera size={18} />
+            <span className="tracking-wide uppercase">Buka Scanner Kamera</span>
           </button>
 
-          {/* Camera Power Toggle */}
-          <button
-            onClick={() => setIsScanning(!isScanning)}
-            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-2 transition-all shadow-sm ${
-              isScanning
-                ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
-                : 'bg-maroon text-gold border border-gold-400 hover:bg-maroon/90'
-            }`}
-          >
-            {isScanning ? <CameraOff size={15} /> : <Camera size={15} />}
-            <span>{isScanning ? 'Jeda Kamera' : 'Buka Kamera'}</span>
-          </button>
-
-          {/* Refresh Data */}
           <button
             onClick={fetchGuests}
-            className="p-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+            className="p-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
             title="Refresh Data Tamu"
           >
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
@@ -538,154 +509,41 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         </div>
       </div>
 
-      {/* 3. GRAND SCREEN SCANNER STAGE (TAMPILAN GEDE KHUSUS LAPTOP) */}
-      <div className="bg-stone-900 text-white rounded-3xl p-6 md:p-8 shadow-2xl border border-stone-800 relative overflow-hidden">
-        {/* Subtle Ambient Glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="max-w-3xl mx-auto space-y-5">
-          {/* Stage Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-stone-800 text-xs">
-            <div className="flex items-center space-x-2 text-gold">
-              <Camera size={18} />
-              <span className="font-bold tracking-wider uppercase">Grand Viewport Scanner Resepsi</span>
-            </div>
-            <div className="flex items-center space-x-2 text-stone-400 text-[11px]">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Sensor Kamera HD Aktif • Deteksi Cepat GPU</span>
-            </div>
-          </div>
-
-          {/* LARGE CAMERA VIEWPORT CONTAINER */}
-          <div className="relative rounded-2xl overflow-hidden bg-black border-2 border-stone-700 shadow-inner w-full min-h-[360px] md:min-h-[460px] flex items-center justify-center">
-            {/* HTML5 QRCODE CONTAINER */}
-            <div id="scanner-desk-reader" className="w-full h-full" />
-
-            {/* Target Reticle Overlay & Scanning Laser Line (Active when scanning) */}
-            {isScanning && (
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                {/* Laser scan line animation */}
-                <div className="absolute w-3/4 h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_15px_#f59e0b] animate-pulse" />
-              </div>
-            )}
-
-            {/* Inactive State Message */}
-            {!isScanning && (
-              <div className="p-12 text-center text-stone-400 space-y-3 z-10">
-                <CameraOff size={48} className="mx-auto text-stone-600" />
-                <p className="text-sm font-bold text-stone-300">Kamera Scanner Sedang Dijeda</p>
-                <p className="text-xs text-stone-500 max-w-sm mx-auto">
-                  Klik tombol "Buka Kamera" di atas untuk menyalakan kembali sensor kamera laptop Anda.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* LAPTOP SCANNING TIPS CARD */}
-          <div className="p-3.5 bg-stone-800/80 rounded-2xl border border-stone-700/60 flex items-start space-x-3 text-xs text-stone-300">
-            <Info size={18} className="text-gold shrink-0 mt-0.5" />
-            <div className="leading-relaxed">
-              <span className="font-bold text-gold block">💡 Tips Memindai Barcode di Laptop:</span>
-              Jaga jarak HP tamu sekitar <strong className="text-white">15–25 cm</strong> di depan webcam. Posisikan barcode tepat di tengah layar kamera. Jika barcode tidak langsung terbaca, coba turunkan sedikit kecerahan layar HP tamu agar tidak silau/pantulan cahaya.
-            </div>
-          </div>
-
-          {/* MANUAL TICKET CODE INPUT BAR */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (manualCode) {
-                handleProcessScan(manualCode);
-                setManualCode('');
-              }
-            }}
-            className="flex flex-col sm:flex-row gap-2.5 pt-1"
-          >
-            <div className="relative flex-1">
-              <input
-                type="text"
-                placeholder="Atau ketik Kode Tiket: FN-XXXXXX"
-                value={manualCode}
-                onChange={(e) => setManualCode(e.target.value.toUpperCase())}
-                className="w-full px-4 py-3 rounded-xl bg-stone-800 border border-stone-700 text-white font-mono text-xs uppercase tracking-wider outline-none focus:border-gold placeholder:text-stone-500 shadow-inner"
-              />
-            </div>
-            <button
-              type="submit"
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-gold via-amber-400 to-gold-500 hover:opacity-90 text-maroon font-bold text-xs shadow-lg transition-all flex items-center justify-center space-x-1.5 active:scale-95"
-            >
-              <Send size={14} />
-              <span>Check-in Cepat</span>
-            </button>
-          </form>
+      {/* 3. QUICK MANUAL CHECK-IN BAR */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center space-x-2.5 text-gray-800 text-xs font-bold uppercase tracking-wider">
+          <QrCode size={18} className="text-maroon" />
+          <span>Check-in Cepat Manual (Ketik Kode Tiket)</span>
         </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (manualCode) {
+              handleProcessScan(manualCode);
+              setManualCode('');
+            }
+          }}
+          className="flex items-center space-x-2 w-full sm:w-auto"
+        >
+          <input
+            type="text"
+            placeholder="Contoh: FN-A8K9Z2"
+            value={manualCode}
+            onChange={(e) => setManualCode(e.target.value.toUpperCase())}
+            className="px-4 py-2.5 text-xs border border-gray-200 rounded-xl focus:border-maroon outline-none font-mono uppercase w-full sm:w-60 shadow-inner"
+          />
+          <button
+            type="submit"
+            className="px-5 py-2.5 bg-maroon hover:bg-maroon-800 text-gold text-xs font-bold rounded-xl transition-all shadow-sm flex items-center space-x-1.5 shrink-0"
+          >
+            <Send size={13} />
+            <span>Check-in</span>
+          </button>
+        </form>
       </div>
 
-      {/* 4. SCAN RESULT POPUP BANNER */}
-      {scanResult && (
-        <div className="bg-white rounded-3xl p-6 shadow-xl border border-amber-200 animate-fade-in relative overflow-hidden">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-start space-x-4">
-              <div
-                className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${
-                  scanResult.wasAlreadyAttended
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-emerald-100 text-emerald-700'
-                }`}
-              >
-                {scanResult.wasAlreadyAttended ? (
-                  <AlertCircle size={32} />
-                ) : (
-                  <CheckCircle2 size={32} />
-                )}
-              </div>
-              <div>
-                <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400">
-                  {scanResult.wasAlreadyAttended
-                    ? 'Peringatan: Sudah Pernah Hadir'
-                    : 'Check-in Berhasil Dikonfirmasi'}
-                </span>
-                <h3 className="font-serif text-2xl font-bold text-gray-900 mt-0.5">
-                  {scanResult.guest.nama_tamu}
-                </h3>
-                <div className="flex items-center space-x-2 mt-1.5">
-                  <span className="font-mono text-xs bg-stone-100 px-2.5 py-0.5 rounded text-maroon font-bold">
-                    {scanResult.guest.ticket_code}
-                  </span>
-                  <span className="text-xs bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-0.5 rounded font-bold">
-                    {scanResult.guest.pihak}
-                  </span>
-                  <span className="text-xs bg-gray-100 text-gray-800 px-2.5 py-0.5 rounded font-bold">
-                    {scanResult.guest.jumlah_tamu} Pax
-                  </span>
-                  {scanResult.guest.attended_at && (
-                    <span className="text-xs text-gray-400 flex items-center space-x-1">
-                      <Clock size={12} />
-                      <span>
-                        Pukul {new Date(scanResult.guest.attended_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
-                      </span>
-                    </span>
-                  )}
-                </div>
-                {scanResult.guest.ucapan && (
-                  <p className="text-xs text-gray-600 italic mt-2 bg-stone-50 p-2.5 rounded-xl border border-stone-100">
-                    "{scanResult.guest.ucapan}"
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <button
-              onClick={() => setScanResult(null)}
-              className="px-6 py-3.5 rounded-xl bg-maroon text-gold font-bold text-xs uppercase tracking-wider hover:bg-maroon/90 shadow-md shrink-0 w-full sm:w-auto"
-            >
-              Lanjutkan Scan
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 5. GUESTBOOK TABLE SECTION (WITH FILTER, SEARCH, SCROLL, AND PAGINATION) */}
+      {/* 4. GUESTBOOK TABLE SECTION (WITH FILTER, SEARCH, SCROLL, AND PAGINATION) */}
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden space-y-4">
         
         {/* Table Controls (Search & Filters) */}
@@ -695,7 +553,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               Daftar Tamu Undangan & Status Kehadiran
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Cari data tamu, filter berdasarkan status/pihak, dan periksa kehadiran secara langsung
+              Kelola daftar hadir, cari tamu, dan tandai check-in secara instan
             </p>
           </div>
 
@@ -748,7 +606,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         </div>
 
         {/* SCROLLABLE TABLE CONTAINER */}
-        <div className="overflow-x-auto overflow-y-auto max-h-[460px] custom-scrollbar px-6 pb-2">
+        <div className="overflow-x-auto overflow-y-auto max-h-[480px] custom-scrollbar px-6 pb-2">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-[#FAF7F2] text-maroon uppercase tracking-wider font-serif font-bold sticky top-0 z-10 shadow-sm">
               <tr>
@@ -943,7 +801,196 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         </div>
       </div>
 
-      {/* 6. MODAL PREVIEW BARCODE TAMU */}
+      {/* ============================================================== */}
+      {/* 5. DEDICATED SCANNER MODAL (FULL SCREENSHOT SINGLE FEED)      */}
+      {/* ============================================================== */}
+      {isScannerModalOpen && (
+        <div 
+          onClick={() => setIsScannerModalOpen(false)}
+          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fade-in"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-stone-900 border border-gold-400/40 rounded-[2rem] w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col relative max-h-[92vh]"
+          >
+            
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-stone-800 flex items-center justify-between text-white bg-stone-900/95 z-20">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-gold/20 border border-gold/40 flex items-center justify-center text-gold">
+                  <Camera size={20} />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-base sm:text-lg text-gold leading-tight">
+                    Scanner Kamera Meja Resepsi
+                  </h3>
+                  <p className="text-[11px] text-stone-400">
+                    Arahkan barcode tiket tamu tepat ke depan kamera
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                {/* Camera Switcher Dropdown */}
+                {cameras.length > 1 && (
+                  <select
+                    value={selectedCameraId}
+                    onChange={(e) => setSelectedCameraId(e.target.value)}
+                    className="px-2.5 py-1.5 bg-stone-800 border border-stone-700 rounded-xl text-xs font-bold text-stone-200 outline-none max-w-[160px] truncate"
+                  >
+                    {cameras.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        📷 {c.label || 'Kamera'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Sound Toggle */}
+                <button
+                  onClick={() => setSoundEnabled(!soundEnabled)}
+                  className={`p-2 rounded-xl border transition-colors ${
+                    soundEnabled
+                      ? 'bg-amber-500/20 text-gold border-amber-500/40'
+                      : 'bg-stone-800 text-stone-500 border-stone-700'
+                  }`}
+                  title={soundEnabled ? 'Matikan Suara Chime' : 'Nyalakan Suara Chime'}
+                >
+                  {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                </button>
+
+                {/* Close Button */}
+                <button
+                  onClick={() => setIsScannerModalOpen(false)}
+                  className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-400 hover:text-white transition-colors"
+                  title="Tutup Scanner (Esc)"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Single Large Camera Viewport */}
+            <div className="relative flex-1 bg-black flex items-center justify-center min-h-[420px] sm:min-h-[500px] md:h-[62vh] overflow-hidden">
+              {/* Single Video Container (Forced single stream & full cover) */}
+              <div 
+                id="scanner-modal-reader" 
+                className="w-full h-full flex items-center justify-center [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover [&_video:not(:first-of-type)]:!hidden [&>div]:!w-full [&>div]:!h-full [&>div]:!border-none" 
+              />
+
+              {/* Scanning Target Reticles & Active Laser Line */}
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                {/* Golden Corner Reticles */}
+                <div className="w-64 h-64 sm:w-80 sm:h-80 border-2 border-gold/40 rounded-3xl relative flex items-center justify-center">
+                  <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-gold rounded-tl-xl" />
+                  <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-gold rounded-tr-xl" />
+                  <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-gold rounded-bl-xl" />
+                  <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-gold rounded-br-xl" />
+                  
+                  {/* Active Laser Sweep */}
+                  <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_15px_#f59e0b] animate-pulse" />
+                </div>
+              </div>
+
+              {/* Scan Result Popup Overlay inside Modal */}
+              {scanResult && (
+                <div className="absolute inset-x-4 bottom-4 z-30 bg-white/95 backdrop-blur-md rounded-2xl p-5 shadow-2xl border border-amber-200 animate-fade-in text-gray-900">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start space-x-3.5">
+                      <div
+                        className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                          scanResult.wasAlreadyAttended
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {scanResult.wasAlreadyAttended ? (
+                          <AlertCircle size={28} />
+                        ) : (
+                          <CheckCircle2 size={28} />
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block">
+                          {scanResult.wasAlreadyAttended
+                            ? 'Peringatan: Sudah Pernah Hadir'
+                            : 'Check-in Berhasil Terverifikasi'}
+                        </span>
+                        <h4 className="font-serif text-xl font-bold text-gray-900 mt-0.5">
+                          {scanResult.guest.nama_tamu}
+                        </h4>
+                        <div className="flex items-center space-x-2 mt-1">
+                          <span className="font-mono text-xs bg-stone-100 px-2 py-0.5 rounded text-maroon font-bold">
+                            {scanResult.guest.ticket_code}
+                          </span>
+                          <span className="text-xs bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded font-bold">
+                            {scanResult.guest.pihak}
+                          </span>
+                          <span className="text-xs bg-gray-100 text-gray-800 px-2 py-0.5 rounded font-bold">
+                            {scanResult.guest.jumlah_tamu} Pax
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setScanResult(null)}
+                      className="px-4 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-md shrink-0 uppercase tracking-wider"
+                    >
+                      Lanjutkan
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer (Tips & Manual Input) */}
+            <div className="p-4 bg-stone-900 border-t border-stone-800 space-y-3">
+              <div className="flex items-center justify-between text-xs text-stone-400">
+                <span className="flex items-center space-x-1.5">
+                  <Info size={14} className="text-gold" />
+                  <span>Jarak HP tamu ideal: <strong>15–25 cm</strong> di depan kamera.</span>
+                </span>
+                <span className="text-stone-500 font-mono text-[11px]">
+                  Sensor: 15 FPS • GPU Active
+                </span>
+              </div>
+
+              {/* Fast code input inside modal */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (manualCode) {
+                    handleProcessScan(manualCode);
+                    setManualCode('');
+                  }
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  placeholder="Atau ketik Kode Tiket: FN-XXXXXX"
+                  value={manualCode}
+                  onChange={(e) => setManualCode(e.target.value.toUpperCase())}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-stone-800 border border-stone-700 text-white font-mono text-xs uppercase outline-none focus:border-gold placeholder:text-stone-500"
+                />
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-400 text-maroon font-bold text-xs shadow-md transition-all flex items-center space-x-1.5"
+                >
+                  <Send size={13} />
+                  <span>Check-in</span>
+                </button>
+              </form>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* 6. MODAL PREVIEW BARCODE TAMU                                 */}
+      {/* ============================================================== */}
       {previewGuest && (
         <Modal
           isOpen={Boolean(previewGuest)}

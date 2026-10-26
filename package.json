@@ -8,7 +8,8 @@
     "client": "node node_modules/vite/bin/vite.js",
     "dev": "node dev.cjs",
     "build": "node node_modules/vite/bin/vite.js build",
-    "preview": "node node_modules/vite/bin/vite.js preview"
+    "preview": "node node_modules/vite/bin/vite.js preview",
+    "deploy": "git add . && git commit -m \"update wedding system\" && git push origin main"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.93.2",

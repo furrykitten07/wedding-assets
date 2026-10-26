@@ -59,8 +59,9 @@ const GuestPass: React.FC = () => {
       const found = Array.isArray(data) ? data[0] : data;
       if (found) {
         setTicket(found);
-        // Generate QR Code
-        const qrUrl = await QRCode.toDataURL(found.ticket_code, {
+        // Generate QR Code with Full Check-in Validation URL
+        const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(found.ticket_code)}`;
+        const qrUrl = await QRCode.toDataURL(checkinUrl, {
           width: 320,
           margin: 2,
           color: {

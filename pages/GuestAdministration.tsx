@@ -171,8 +171,22 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
   }, [isScanning]);
 
   // Check-in Execution Logic
-  const handleProcessCheckin = async (code: string) => {
-    const cleanCode = code.trim().toUpperCase();
+  const handleProcessCheckin = async (rawCode: string) => {
+    let cleanCode = rawCode.trim();
+    // Support URL parsing from camera scanner (e.g. https://.../#/checkin?code=FN-XXXXXX)
+    if (cleanCode.includes('code=')) {
+      const match = cleanCode.match(/[?&]code=([A-Za-z0-9_-]+)/i);
+      if (match && match[1]) {
+        cleanCode = match[1];
+      }
+    } else if (cleanCode.includes('/')) {
+      const parts = cleanCode.split('/');
+      const last = parts[parts.length - 1];
+      if (last.toUpperCase().startsWith('FN-')) {
+        cleanCode = last;
+      }
+    }
+    cleanCode = cleanCode.toUpperCase();
     if (!cleanCode) return;
 
     isProcessingScanRef.current = true;
@@ -305,8 +319,10 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
   const handleOpenPreview = async (guest: BukuTamu) => {
     try {
       setPreviewGuest(guest);
-      const url = await QRCode.toDataURL(guest.ticket_code, {
-        width: 300,
+      // Generate QR Code with Full Live Check-in Validation URL
+      const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(guest.ticket_code)}`;
+      const url = await QRCode.toDataURL(checkinUrl, {
+        width: 320,
         margin: 2,
         color: { dark: '#6B0F1A', light: '#FFFFFF' }
       });
@@ -834,7 +850,20 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
               </p>
             </div>
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
+              <button
+                onClick={() => {
+                  window.open(
+                    `${window.location.origin}/#/checkin?code=${previewGuest.ticket_code}`,
+                    '_blank'
+                  );
+                }}
+                className="flex-1 flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-sm"
+              >
+                <CheckCircle2 size={14} />
+                <span>Validasi / Check-in</span>
+              </button>
+
               <button
                 onClick={() => {
                   window.open(
@@ -842,15 +871,15 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                     '_blank'
                   );
                 }}
-                className="flex-1 flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-gold-50 text-gold-900 border border-gold-300 font-bold text-xs hover:bg-gold-100"
+                className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-gold-50 text-gold-900 border border-gold-300 font-bold text-xs hover:bg-gold-100"
               >
                 <ExternalLink size={14} />
-                <span>Buka Tiket Publik</span>
+                <span>Tiket Tamu</span>
               </button>
 
               <button
                 onClick={() => window.print()}
-                className="flex items-center justify-center space-x-1.5 py-2.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs"
+                className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs"
               >
                 <Printer size={14} />
                 <span>Cetak</span>

@@ -15,6 +15,7 @@ import Prayers from './pages/Prayers';
 import Ideas from './pages/Ideas';
 import GuestPass from './pages/GuestPass';
 import GuestAdministration from './pages/GuestAdministration';
+import CheckinValidation from './pages/CheckinValidation';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -77,6 +78,9 @@ const App: React.FC = () => {
         <Route path="/guest-pass" element={<GuestPass />} />
         <Route path="/rsvp" element={<GuestPass />} />
         <Route path="/buku-tamu" element={<GuestPass />} />
+        <Route path="/checkin" element={<CheckinValidation />} />
+        <Route path="/validasi" element={<CheckinValidation />} />
+        <Route path="/scan" element={<CheckinValidation />} />
 
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
         <Route path="/" element={session ? <Layout userEmail={userEmail}><Dashboard /></Layout> : <Navigate to="/login" />} />

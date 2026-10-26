@@ -120,3 +120,10 @@ CREATE TABLE IF NOT EXISTS messages (
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- 9. TABEL settings (Untuk menyimpan tanggal acara & konfigurasi bersama)
+CREATE TABLE IF NOT EXISTS settings (
+    setting_key TEXT PRIMARY KEY,
+    setting_value TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);

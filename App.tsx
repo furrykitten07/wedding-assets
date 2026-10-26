@@ -19,16 +19,34 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let subscription: any = null;
     const initSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session);
-      setLoading(false);
+      try {
+        const { data } = await supabase.auth.getSession();
+        setSession(data?.session || null);
+      } catch (err) {
+        console.warn("Auth session error:", err);
+        setSession(null);
+      } finally {
+        setLoading(false);
+      }
     };
     initSession();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-      setSession(session);
-    });
-    return () => subscription.unsubscribe();
+
+    try {
+      const authRes = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+        setSession(session);
+      });
+      subscription = authRes.data?.subscription;
+    } catch (e) {
+      console.warn("Auth listener error:", e);
+    }
+
+    return () => {
+      if (subscription?.unsubscribe) {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
 
   if (loading) {

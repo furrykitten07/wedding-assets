@@ -15,7 +15,8 @@ import {
   MessageSquare,
   BookOpenCheck,
   Lightbulb,
-  QrCode
+  QrCode,
+  Camera
 } from 'lucide-react';
 import { supabase } from '../supabase';
 
@@ -31,10 +32,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const isResepsi = userEmail.toLowerCase().includes('resepsi') || userEmail.toLowerCase().includes('scanner') || userEmail.toLowerCase().includes('panitia');
   const isFikri = userEmail.toLowerCase().includes('fikri');
-  const roleLabel = isFikri ? 'Calon Suami' : 'Calon Istri';
+  const roleLabel = isResepsi ? 'Petugas Resepsi & Scan' : isFikri ? 'Calon Suami' : 'Calon Istri';
 
   useEffect(() => {
+    if (isResepsi) return;
     const fetchUnread = async () => {
       const { data } = await supabase.from('messages').select('*').eq('receiver_email', userEmail).eq('is_read', false);
       setUnreadCount(data?.length || 0);
@@ -42,15 +45,19 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
     fetchUnread();
     const interval = setInterval(fetchUnread, 5000);
     return () => clearInterval(interval);
-  }, [userEmail, location.pathname]);
+  }, [userEmail, location.pathname, isResepsi]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
   };
 
-  const navItems = [
+  const navItems = isResepsi ? [
+    { name: 'Scan Kehadiran', icon: Camera, path: '/scanner' },
+    { name: 'Buku Tamu & Data', icon: QrCode, path: '/administrasi-tamu' },
+  ] : [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
+    { name: 'Scan Kehadiran', icon: Camera, path: '/scanner' },
     { name: 'Lamaran', icon: Heart, path: '/lamaran' },
     { name: 'Pernikahan', icon: Sparkles, path: '/pernikahan' },
     { name: 'Daftar Tamu', icon: Users, path: '/tamu' },
@@ -100,36 +107,40 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
       </nav>
 
       <div className="p-4 border-t border-gray-100 space-y-3">
-        <NavLink
-            to="/ideas"
-            className={({ isActive }) => `
-              flex items-center p-3 rounded-xl transition-all duration-300 relative group
-              ${isActive ? 'bg-maroon text-gold shadow-lg border border-gold-400' : 'bg-gold-50 text-gold-800 hover:bg-gold-100'}
-              ${isCollapsed ? 'justify-center' : 'space-x-3'}
-            `}
-        >
-          <Lightbulb size={20} />
-          {!isCollapsed && <span className="font-bold uppercase text-[11px] tracking-widest">Ide & Inspirasi</span>}
-        </NavLink>
+        {!isResepsi && (
+          <>
+            <NavLink
+                to="/ideas"
+                className={({ isActive }) => `
+                  flex items-center p-3 rounded-xl transition-all duration-300 relative group
+                  ${isActive ? 'bg-maroon text-gold shadow-lg border border-gold-400' : 'bg-gold-50 text-gold-800 hover:bg-gold-100'}
+                  ${isCollapsed ? 'justify-center' : 'space-x-3'}
+                `}
+            >
+              <Lightbulb size={20} />
+              {!isCollapsed && <span className="font-bold uppercase text-[11px] tracking-widest">Ide & Inspirasi</span>}
+            </NavLink>
 
-        <NavLink
-            to="/messages"
-            className={({ isActive }) => `
-              flex items-center p-3 rounded-xl transition-all duration-300 relative group
-              ${isActive ? 'bg-maroon text-gold shadow-lg' : 'bg-gold-50 text-gold-800 hover:bg-gold-100'}
-              ${isCollapsed ? 'justify-center' : 'space-x-3'}
-            `}
-        >
-          <div className="relative">
-            <MessageSquare size={20} />
-            {unreadCount > 0 && (
-              <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-pulse border-2 border-white">
-                {unreadCount}
-              </span>
-            )}
-          </div>
-          {!isCollapsed && <span className="font-bold uppercase text-[11px] tracking-widest">Pesan Pasangan</span>}
-        </NavLink>
+            <NavLink
+                to="/messages"
+                className={({ isActive }) => `
+                  flex items-center p-3 rounded-xl transition-all duration-300 relative group
+                  ${isActive ? 'bg-maroon text-gold shadow-lg' : 'bg-gold-50 text-gold-800 hover:bg-gold-100'}
+                  ${isCollapsed ? 'justify-center' : 'space-x-3'}
+                `}
+            >
+              <div className="relative">
+                <MessageSquare size={20} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-pulse border-2 border-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </div>
+              {!isCollapsed && <span className="font-bold uppercase text-[11px] tracking-widest">Pesan Pasangan</span>}
+            </NavLink>
+          </>
+        )}
 
         <div className={`mb-4 ${isCollapsed ? 'hidden' : 'block'}`}>
           <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center space-x-3">

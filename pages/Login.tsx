@@ -44,7 +44,8 @@ const Login: React.FC = () => {
       
       toast.success(`Selamat datang, ${data.user?.name || userEmail.split('@')[0]}! ❤️`);
       
-      navigate('/', { replace: true });
+      const isResepsi = userEmail.toLowerCase().includes('resepsi') || userEmail.toLowerCase().includes('scanner') || userEmail.toLowerCase().includes('panitia');
+      navigate(isResepsi ? '/scanner' : '/', { replace: true });
     } catch (error: any) {
       toast.error(error.message || 'Login gagal. Periksa kembali username & password.');
     } finally {

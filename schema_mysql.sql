@@ -16,12 +16,13 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Hapus user lama jika ada lalu isi akun Fikri dan Nadya
-DELETE FROM users WHERE username IN ('fikri', 'nadya');
+-- Hapus user lama jika ada lalu isi akun Fikri, Nadya, dan Akun Khusus Resepsi
+DELETE FROM users WHERE username IN ('fikri', 'nadya', 'resepsi');
 
 INSERT INTO users (id, username, email, password, name, role) VALUES
 (UUID(), 'fikri', 'fikri@wedding.com', 'fiinad260918', 'Fikri', 'owner'),
-(UUID(), 'nadya', 'nadya@wedding.com', 'nadya260918', 'Nadya', 'owner');
+(UUID(), 'nadya', 'nadya@wedding.com', 'nadya260918', 'Nadya', 'owner'),
+(UUID(), 'resepsi', 'resepsi@wedding.com', 'resepsi260918', 'Petugas Resepsi & Scan', 'resepsi');
 
 -- 2. TABEL activity_logs
 CREATE TABLE IF NOT EXISTS activity_logs (

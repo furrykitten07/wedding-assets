@@ -14,7 +14,10 @@ import {
   ExternalLink,
   ShieldCheck,
   Check,
-  Send
+  Send,
+  Lock,
+  Unlock,
+  UserCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase, logActivity } from '../supabase';
@@ -49,7 +52,7 @@ const playChime = (isSuccess: boolean = true) => {
       osc.stop(ctx.currentTime + 0.3);
     }
   } catch {
-    // ignore audio block
+    // ignore
   }
 };
 
@@ -57,6 +60,9 @@ const CheckinValidation: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const rawCode = searchParams.get('code') || '';
+
+  const [session, setSession] = useState<any>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
 
   const [ticketCode, setTicketCode] = useState(rawCode.trim().toUpperCase());
   const [guest, setGuest] = useState<BukuTamu | null>(null);
@@ -66,10 +72,30 @@ const CheckinValidation: React.FC = () => {
   const [errorNotFound, setErrorNotFound] = useState(false);
   const hasAutoCheckedRef = useRef(false);
 
-  // Manual input state if user wants to change code
+  // Manual input state
   const [inputCode, setInputCode] = useState('');
 
-  const fetchAndValidate = async (codeToVerify: string) => {
+  // Officer Login Form state
+  const [officerUser, setOfficerUser] = useState('resepsi');
+  const [officerPassword, setOfficerPassword] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  // Check auth session
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        setSession(data?.session || null);
+      } catch (err) {
+        setSession(null);
+      } finally {
+        setSessionLoading(false);
+      }
+    };
+    initAuth();
+  }, []);
+
+  const fetchAndValidate = async (codeToVerify: string, activeSession?: any) => {
     if (!codeToVerify) return;
     try {
       setLoading(true);
@@ -104,9 +130,16 @@ const CheckinValidation: React.FC = () => {
         setProcessed(true);
         playChime(false);
       } else {
-        // Automatically check-in if not yet checked-in!
-        setWasAlreadyAttended(false);
-        await handleConfirmCheckin(target);
+        const currentSess = activeSession !== undefined ? activeSession : session;
+        if (currentSess?.user) {
+          // Authorized officer logged in: Confirm check-in immediately!
+          setWasAlreadyAttended(false);
+          await handleConfirmCheckin(target, currentSess.user.email);
+        } else {
+          // Not logged in: Show officer authorization prompt
+          setWasAlreadyAttended(false);
+          setProcessed(false);
+        }
       }
     } catch (err: any) {
       console.error('Validation error:', err);
@@ -116,7 +149,7 @@ const CheckinValidation: React.FC = () => {
     }
   };
 
-  const handleConfirmCheckin = async (targetGuest: BukuTamu) => {
+  const handleConfirmCheckin = async (targetGuest: BukuTamu, officerEmail?: string) => {
     try {
       const nowIso = new Date().toISOString();
 
@@ -146,7 +179,7 @@ const CheckinValidation: React.FC = () => {
       });
 
       logActivity(
-        'resepsi@wedding.system',
+        officerEmail || session?.user?.email || 'resepsi@wedding.com',
         'update',
         'Tamu',
         `Check-in QR Scan: ${targetGuest.nama_tamu} (${targetGuest.jumlah_tamu} Pax - ${targetGuest.ticket_code})`
@@ -154,6 +187,39 @@ const CheckinValidation: React.FC = () => {
     } catch (err: any) {
       console.error('Confirm check-in error:', err);
       toast.error('Gagal mengonfirmasi kehadiran: ' + err.message);
+    }
+  };
+
+  const handleOfficerLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!officerUser.trim() || !officerPassword) {
+      toast.error('Masukkan username & password petugas');
+      return;
+    }
+
+    try {
+      setLoggingIn(true);
+      const normalizedEmail = officerUser.includes('@')
+        ? officerUser.trim()
+        : `${officerUser.trim()}@wedding.com`;
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: officerPassword
+      });
+
+      if (error) throw error;
+
+      setSession(data.session);
+      toast.success(`Login Petugas Berhasil: ${data.user?.name || officerUser}!`);
+
+      if (guest && !guest.is_attended) {
+        await handleConfirmCheckin(guest, data.user?.email || normalizedEmail);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Login petugas gagal. Periksa username & password.');
+    } finally {
+      setLoggingIn(false);
     }
   };
 
@@ -176,6 +242,7 @@ const CheckinValidation: React.FC = () => {
         attended_at: null
       });
       setWasAlreadyAttended(false);
+      setProcessed(false);
       toast('Status kehadiran dibatalkan', { icon: 'ℹ️' });
     } catch (err: any) {
       toast.error('Gagal membatalkan: ' + err.message);
@@ -183,11 +250,13 @@ const CheckinValidation: React.FC = () => {
   };
 
   useEffect(() => {
-    if (rawCode && !hasAutoCheckedRef.current) {
+    if (rawCode && !hasAutoCheckedRef.current && !sessionLoading) {
       hasAutoCheckedRef.current = true;
-      fetchAndValidate(rawCode);
+      fetchAndValidate(rawCode, session);
     }
-  }, [rawCode]);
+  }, [rawCode, sessionLoading]);
+
+  const isAuthorized = Boolean(session?.user);
 
   return (
     <div className="min-h-screen bg-[#fcf9f5] text-[#2c1810] font-sans relative overflow-x-hidden selection:bg-amber-200">
@@ -212,19 +281,26 @@ const CheckinValidation: React.FC = () => {
           <p className="text-xs uppercase tracking-[0.25em] text-amber-800/80 font-medium mt-1">
             Validasi Kehadiran Tamu Undangan
           </p>
+
+          {isAuthorized && (
+            <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Petugas Aktif: {session.user?.name || session.user?.email?.split('@')[0]}</span>
+            </div>
+          )}
         </div>
 
         {/* LOADING STATE */}
-        {loading && (
+        {(loading || sessionLoading) && (
           <div className="bg-white rounded-3xl p-10 text-center border border-amber-100 shadow-xl space-y-3">
             <div className="w-12 h-12 border-3 border-amber-300 border-t-[#6B0F1A] rounded-full animate-spin mx-auto" />
             <p className="text-sm font-bold text-stone-700">Memverifikasi Barcode Tiket...</p>
-            <p className="text-xs text-stone-400">Menghubungkan ke database sistem pernikahan...</p>
+            <p className="text-xs text-stone-400">Menghubungkan ke sistem resepsi pernikahan...</p>
           </div>
         )}
 
         {/* NOT FOUND STATE */}
-        {!loading && errorNotFound && (
+        {!loading && !sessionLoading && errorNotFound && (
           <div className="bg-white rounded-3xl p-8 text-center border border-rose-200 shadow-xl space-y-5">
             <div className="w-16 h-16 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
               <AlertCircle size={36} />
@@ -264,16 +340,16 @@ const CheckinValidation: React.FC = () => {
             </form>
 
             <button
-              onClick={() => navigate('/administrasi-tamu')}
+              onClick={() => navigate('/scanner')}
               className="text-xs font-bold text-[#6B0F1A] hover:underline block mx-auto pt-2"
             >
-              Kembali ke Menu Administrasi Tamu →
+              Buka Portal Scanner Petugas →
             </button>
           </div>
         )}
 
         {/* GUEST VALIDATED STATE */}
-        {!loading && guest && (
+        {!loading && !sessionLoading && guest && (
           <div className="space-y-5 animate-fade-in">
             
             {/* Status Banner */}
@@ -293,7 +369,7 @@ const CheckinValidation: React.FC = () => {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : guest.is_attended ? (
               <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl p-6 text-center shadow-lg relative overflow-hidden">
                 <div className="w-14 h-14 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center mx-auto mb-3">
                   <CheckCircle2 size={32} className="text-white" />
@@ -307,19 +383,30 @@ const CheckinValidation: React.FC = () => {
                   <span>Pukul {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB</span>
                 </div>
               </div>
+            ) : (
+              /* Tamu Belum Hadir & Butuh Login Petugas */
+              <div className="bg-stone-50 border border-stone-200 rounded-2xl p-5 text-center shadow-sm">
+                <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-full flex items-center justify-center mx-auto mb-2">
+                  <Lock size={24} />
+                </div>
+                <h3 className="font-serif text-lg font-bold text-stone-900">Tiket Terverifikasi Valid</h3>
+                <p className="text-xs text-stone-500 mt-1">
+                  Masukkan akun petugas di bawah ini untuk mencatat kehadiran resmi di meja penerima tamu.
+                </p>
+              </div>
             )}
 
             {/* Guest Identity Card */}
             <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl border border-amber-200/80 space-y-5">
               <div className="flex items-center justify-between pb-4 border-b border-stone-100">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">Data Undangan Terverifikasi</span>
+                <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">Data Undangan Terdaftar</span>
                 <span className="font-mono font-bold text-xs bg-stone-100 px-3 py-1 rounded-full text-[#6B0F1A] border border-stone-200">
                   {guest.ticket_code}
                 </span>
               </div>
 
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu</p>
+                <p className="text-[11px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu Undangan</p>
                 <h2 className="font-serif text-2xl md:text-3xl font-bold text-stone-900 leading-tight mt-0.5">
                   {guest.nama_tamu}
                 </h2>
@@ -369,8 +456,63 @@ const CheckinValidation: React.FC = () => {
                 </div>
               )}
 
+              {/* GATEKEEPER: JIKA BELUM HADIR & BELUM LOGIN PETUGAS */}
+              {!guest.is_attended && !isAuthorized && (
+                <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 p-5 rounded-2xl space-y-3">
+                  <div className="flex items-center space-x-2 text-amber-900 font-bold text-xs uppercase tracking-wider">
+                    <Lock size={15} />
+                    <span>Otorisasi Petugas Resepsi</span>
+                  </div>
+                  <p className="text-[11px] text-stone-600 leading-relaxed">
+                    Untuk keamanan dan akurasi daftar hadir, hanya akun khusus Petugas Resepsi yang dapat mengonfirmasi kehadiran tamu ini.
+                  </p>
+
+                  <form onSubmit={handleOfficerLogin} className="space-y-2.5 pt-1">
+                    <div>
+                      <input
+                        type="text"
+                        placeholder="Username Petugas (e.g. resepsi)"
+                        value={officerUser}
+                        onChange={(e) => setOfficerUser(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 text-xs font-medium outline-none bg-white focus:ring-2 focus:ring-[#6B0F1A]/20"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="password"
+                        placeholder="Password Petugas"
+                        value={officerPassword}
+                        onChange={(e) => setOfficerPassword(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 text-xs font-medium outline-none bg-white focus:ring-2 focus:ring-[#6B0F1A]/20"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loggingIn}
+                      className="w-full py-3 rounded-xl bg-[#6B0F1A] hover:bg-[#800000] text-gold font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                    >
+                      <Unlock size={14} />
+                      <span>{loggingIn ? 'Memverifikasi Akun...' : 'Konfirmasi Kehadiran Tamu Sekarang'}</span>
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* JIKA SUDAH LOGIN PETUGAS TAPI BELUM CHECK-IN (Bisa tombol manual) */}
+              {!guest.is_attended && isAuthorized && (
+                <button
+                  onClick={() => handleConfirmCheckin(guest)}
+                  className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2"
+                >
+                  <CheckCircle2 size={16} />
+                  <span>Konfirmasi Kehadiran Tamu ({guest.jumlah_tamu} Pax)</span>
+                </button>
+              )}
+
               {/* Toggle or Cancel action */}
-              {guest.is_attended && (
+              {guest.is_attended && isAuthorized && (
                 <button
                   onClick={handleCancelCheckin}
                   className="w-full py-2.5 px-4 rounded-xl border border-stone-200 text-stone-600 hover:text-rose-600 hover:bg-rose-50 text-xs font-semibold transition-all flex items-center justify-center space-x-1.5"
@@ -384,11 +526,11 @@ const CheckinValidation: React.FC = () => {
             {/* Bottom Actions */}
             <div className="flex flex-col gap-2.5 pt-2">
               <button
-                onClick={() => navigate('/administrasi-tamu')}
+                onClick={() => navigate('/scanner')}
                 className="w-full py-3.5 px-4 rounded-xl bg-[#6B0F1A] hover:bg-[#800000] text-gold font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2"
               >
-                <span>Buka Meja Resepsi & Scan Tamu Lain</span>
-                <ArrowLeft size={14} className="rotate-180" />
+                <Camera size={15} />
+                <span>Buka Kamera Scanner Meja Resepsi</span>
               </button>
 
               <button
@@ -403,7 +545,7 @@ const CheckinValidation: React.FC = () => {
         )}
 
         {/* NO CODE PARAM PROVIDED */}
-        {!loading && !rawCode && !guest && !errorNotFound && (
+        {!loading && !sessionLoading && !rawCode && !guest && !errorNotFound && (
           <div className="bg-white rounded-3xl p-8 text-center border border-stone-200 shadow-xl space-y-5">
             <div className="w-16 h-16 rounded-full bg-amber-50 text-[#6B0F1A] flex items-center justify-center mx-auto">
               <Camera size={32} />
@@ -442,10 +584,10 @@ const CheckinValidation: React.FC = () => {
             </form>
 
             <button
-              onClick={() => navigate('/administrasi-tamu')}
+              onClick={() => navigate('/scanner')}
               className="text-xs font-bold text-stone-500 hover:text-[#6B0F1A] block mx-auto pt-2"
             >
-              Buka Menu Meja Resepsi Lengkap →
+              Buka Scanner Kamera Petugas →
             </button>
           </div>
         )}

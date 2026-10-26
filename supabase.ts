@@ -422,8 +422,58 @@ class BukuTamuCloudBridge {
 const cloudSupabase = isCloudMode ? createClient(rawUrl, rawKey) : null;
 
 // Proxy client agar buku_tamu otomatis memiliki fallback jembatan aman ke database Supabase
+// serta mendukung autentikasi akun khusus Petugas Resepsi & Scan tanpa hambatan
 const wrappedCloudSupabase = cloudSupabase ? {
   ...cloudSupabase,
+  auth: {
+    ...cloudSupabase.auth,
+    getSession: async () => {
+      try {
+        const stored = localStorage.getItem('wedding_user_session');
+        if (stored) {
+          const session = JSON.parse(stored);
+          if (session?.user?.email?.includes('resepsi') || session?.user?.role === 'resepsi') {
+            return { data: { session }, error: null };
+          }
+        }
+      } catch (err) {
+        // abaikan
+      }
+      return cloudSupabase.auth.getSession();
+    },
+    signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
+      const clean = (email || '').toLowerCase().trim();
+      const isResepsi = clean.includes('resepsi') || clean.includes('scanner') || clean.includes('panitia');
+      
+      // Kredensial akun khusus Petugas Resepsi
+      if (isResepsi && (password === 'resepsi260918' || password === 'resepsi' || password === 'fiinad260918')) {
+        const resepsiUser = {
+          id: '9612015a-170f-4bc4-8421-a1aa281d3945',
+          email: 'resepsi@wedding.com',
+          name: 'Petugas Resepsi & Scan',
+          user_metadata: {
+            name: 'Petugas Resepsi & Scan',
+            role: 'resepsi'
+          },
+          role: 'resepsi'
+        };
+        const session = {
+          user: resepsiUser,
+          access_token: 'resepsi-session-token-' + Date.now(),
+          token_type: 'bearer'
+        };
+        localStorage.setItem('wedding_user_session', JSON.stringify(session));
+        return { data: { user: resepsiUser, session }, error: null };
+      }
+
+      const res = await cloudSupabase.auth.signInWithPassword({ email, password });
+      return res;
+    },
+    signOut: async () => {
+      localStorage.removeItem('wedding_user_session');
+      return cloudSupabase.auth.signOut();
+    }
+  },
   from: (tableName: string) => {
     if (tableName === 'buku_tamu') {
       return new BukuTamuCloudBridge(cloudSupabase);

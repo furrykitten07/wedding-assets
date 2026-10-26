@@ -1,10 +1,11 @@
 
-export type UserRole = 'owner';
+export type UserRole = 'owner' | 'resepsi' | 'scanner';
 
 export interface UserProfile {
   id: string;
   email: string;
   role: UserRole;
+  name?: string;
 }
 
 export enum ItemStatus {

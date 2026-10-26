@@ -13,6 +13,8 @@ import ActivityLogs from './pages/ActivityLogs';
 import MessageCenter from './pages/MessageCenter';
 import Prayers from './pages/Prayers';
 import Ideas from './pages/Ideas';
+import GuestPass from './pages/GuestPass';
+import GuestAdministration from './pages/GuestAdministration';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -71,11 +73,17 @@ const App: React.FC = () => {
         style: { background: '#800000', color: '#D4AF37', borderRadius: '16px', fontWeight: 'bold', border: '1px solid #D4AF37' }
       }} />
       <Routes>
+        {/* Halaman Publik (Tanpa Login) untuk RSVP & Digital Guest Pass Barcode */}
+        <Route path="/guest-pass" element={<GuestPass />} />
+        <Route path="/rsvp" element={<GuestPass />} />
+        <Route path="/buku-tamu" element={<GuestPass />} />
+
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/" />} />
         <Route path="/" element={session ? <Layout userEmail={userEmail}><Dashboard /></Layout> : <Navigate to="/login" />} />
         <Route path="/lamaran" element={session ? <Layout userEmail={userEmail}><BudgetTable moduleName="Lamaran" tableName="lamaran_items" userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
         <Route path="/pernikahan" element={session ? <Layout userEmail={userEmail}><BudgetTable moduleName="Pernikahan" tableName="pernikahan_items" userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
         <Route path="/tamu" element={session ? <Layout userEmail={userEmail}><GuestList userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
+        <Route path="/administrasi-tamu" element={session ? <Layout userEmail={userEmail}><GuestAdministration userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
         <Route path="/pendapatan" element={session ? <Layout userEmail={userEmail}><IncomeList userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
         <Route path="/ideas" element={session ? <Layout userEmail={userEmail}><Ideas userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
         <Route path="/prayers" element={session ? <Layout userEmail={userEmail}><Prayers /></Layout> : <Navigate to="/login" />} />

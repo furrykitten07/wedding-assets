@@ -17,7 +17,9 @@ import {
   Edit3, 
   BookmarkCheck,
   Send,
-  UserCheck
+  UserCheck,
+  QrCode,
+  Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
@@ -515,6 +517,39 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-serif font-bold text-maroon">Jalan Pintas Cepat</h3>
               <span className="text-[11px] text-gray-400 font-medium">Akses langsung fitur utama</span>
+            </div>
+
+            {/* Reception Desk & Public RSVP Banner */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-maroon via-maroon-900 to-[#550B14] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
+              <div className="flex items-center space-x-3.5">
+                <div className="w-11 h-11 rounded-xl bg-gold-400/20 border border-gold-400/30 flex items-center justify-center text-gold shrink-0">
+                  <QrCode size={24} />
+                </div>
+                <div>
+                  <h4 className="font-serif font-bold text-sm text-gold-200">Buku Tamu Digital & QR Check-in</h4>
+                  <p className="text-xs text-amber-100/80 mt-0.5">Form pendaftaran tamu publik & scanner kehadiran di meja resepsi</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  onClick={() => {
+                    const url = `${window.location.origin}/#/guest-pass`;
+                    navigator.clipboard.writeText(url);
+                    toast.success('Link Form Tamu disalin!');
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-gold-200 text-xs font-bold border border-white/15 transition-all flex items-center space-x-1.5"
+                >
+                  <Copy size={13} />
+                  <span>Salin Link Tamu</span>
+                </button>
+                <button
+                  onClick={() => navigate('/administrasi-tamu')}
+                  className="px-4 py-2 rounded-xl bg-gold text-maroon hover:bg-gold-400 text-xs font-bold transition-all shadow-sm flex items-center space-x-1"
+                >
+                  <span>Buka Meja Tamu</span>
+                  <ChevronRight size={14} />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

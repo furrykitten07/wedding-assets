@@ -102,3 +102,16 @@ export interface Message {
   created_at: string;
   is_read: boolean;
 }
+
+export interface BukuTamu {
+  id: string;
+  ticket_code: string;
+  nama_tamu: string;
+  no_whatsapp?: string;
+  pihak: 'Pihak Fikri' | 'Pihak Nadya' | 'Rekan Bersama' | string;
+  jumlah_tamu: number;
+  ucapan?: string;
+  is_attended: boolean;
+  attended_at?: string | null;
+  created_at: string;
+}

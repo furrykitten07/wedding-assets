@@ -138,3 +138,17 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+-- 11. TABEL buku_tamu (Administrasi Kehadiran & QR Check-in)
+CREATE TABLE IF NOT EXISTS buku_tamu (
+    id VARCHAR(36) PRIMARY KEY,
+    ticket_code VARCHAR(30) UNIQUE NOT NULL,
+    nama_tamu VARCHAR(255) NOT NULL,
+    no_whatsapp VARCHAR(50),
+    pihak VARCHAR(50) NOT NULL,
+    jumlah_tamu INT DEFAULT 1,
+    ucapan TEXT,
+    is_attended BOOLEAN DEFAULT FALSE,
+    attended_at DATETIME NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+

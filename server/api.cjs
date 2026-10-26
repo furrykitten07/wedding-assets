@@ -28,7 +28,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 const JSON_COLUMNS = ['foto_urls', 'categories', 'image_urls'];
-const BOOLEAN_COLUMNS = ['is_qty_enabled', 'membawa_pasangan', 'is_approved', 'is_read'];
+const BOOLEAN_COLUMNS = ['is_qty_enabled', 'membawa_pasangan', 'is_approved', 'is_read', 'is_attended'];
 const ALLOWED_TABLES = [
   'activity_logs',
   'lamaran_items',
@@ -39,7 +39,8 @@ const ALLOWED_TABLES = [
   'idea_comments',
   'messages',
   'settings',
-  'users'
+  'users',
+  'buku_tamu'
 ];
 
 function transformRowFromDb(row) {
@@ -264,11 +265,12 @@ router.post('/data/:table', async (req, res) => {
 // 5. Data Update Endpoint (PUT/PATCH)
 router.put('/data/:table', async (req, res) => {
   const { table } = req.params;
-  const { id, ...updates } = req.body;
+  const { id, ticket_code, ...updates } = req.body;
   const queryId = req.query.id || id;
+  const queryTicketCode = req.query.ticket_code || ticket_code;
 
-  if (!queryId) {
-    return res.status(400).json({ error: { message: 'ID target update diperlukan' } });
+  if (!queryId && !queryTicketCode) {
+    return res.status(400).json({ error: { message: 'ID atau ticket_code target update diperlukan' } });
   }
 
   try {
@@ -281,15 +283,24 @@ router.put('/data/:table', async (req, res) => {
     }
 
     const setClauses = keys.map(k => `\`${k}\` = ?`).join(', ');
-    const values = [...Object.values(toUpdate), queryId];
 
-    await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE id = ?`, values);
-    const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [queryId]);
-
-    return res.json({
-      data: rows[0] ? transformRowFromDb(rows[0]) : null,
-      error: null
-    });
+    if (queryId) {
+      const values = [...Object.values(toUpdate), queryId];
+      await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE id = ?`, values);
+      const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE id = ?`, [queryId]);
+      return res.json({
+        data: rows[0] ? transformRowFromDb(rows[0]) : null,
+        error: null
+      });
+    } else {
+      const values = [...Object.values(toUpdate), queryTicketCode];
+      await pool.query(`UPDATE \`${table}\` SET ${setClauses} WHERE ticket_code = ?`, values);
+      const [rows] = await pool.query(`SELECT * FROM \`${table}\` WHERE ticket_code = ?`, [queryTicketCode]);
+      return res.json({
+        data: rows[0] ? transformRowFromDb(rows[0]) : null,
+        error: null
+      });
+    }
   } catch (err) {
     console.error(`Error updating ${table}:`, err);
     return res.status(500).json({ data: null, error: { message: err.message } });

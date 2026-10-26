@@ -127,3 +127,23 @@ CREATE TABLE IF NOT EXISTS settings (
     setting_value TEXT,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- 10. TABEL buku_tamu (Administrasi Kehadiran & QR Check-in)
+CREATE TABLE IF NOT EXISTS buku_tamu (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    ticket_code TEXT UNIQUE NOT NULL,
+    nama_tamu TEXT NOT NULL,
+    no_whatsapp TEXT,
+    pihak TEXT NOT NULL,
+    jumlah_tamu INTEGER DEFAULT 1,
+    ucapan TEXT,
+    is_attended BOOLEAN DEFAULT FALSE,
+    attended_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Policy untuk buku_tamu agar bisa diakses oleh publik (insert dan read berdasarkan ticket_code / public)
+ALTER TABLE buku_tamu ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public can insert buku_tamu" ON buku_tamu FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public can select buku_tamu" ON buku_tamu FOR SELECT USING (true);
+CREATE POLICY "Public can update buku_tamu checkin" ON buku_tamu FOR UPDATE USING (true);

@@ -14,7 +14,8 @@ import {
   Sparkles,
   MessageSquare,
   BookOpenCheck,
-  Lightbulb
+  Lightbulb,
+  QrCode
 } from 'lucide-react';
 import { supabase } from '../supabase';
 
@@ -53,6 +54,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
     { name: 'Lamaran', icon: Heart, path: '/lamaran' },
     { name: 'Pernikahan', icon: Sparkles, path: '/pernikahan' },
     { name: 'Daftar Tamu', icon: Users, path: '/tamu' },
+    { name: 'Buku Tamu & Scan', icon: QrCode, path: '/administrasi-tamu' },
     { name: 'Pendapatan', icon: Wallet, path: '/pendapatan' },
     { name: 'Doa & Amalan', icon: BookOpenCheck, path: '/prayers' },
     { name: 'Log Aktivitas', icon: History, path: '/logs' },

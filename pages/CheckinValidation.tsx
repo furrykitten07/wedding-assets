@@ -17,7 +17,10 @@ import {
   Send,
   Lock,
   Unlock,
-  UserCheck
+  UserCheck,
+  Gift,
+  Award,
+  PackageCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase, logActivity } from '../supabase';
@@ -187,6 +190,47 @@ const CheckinValidation: React.FC = () => {
     } catch (err: any) {
       console.error('Confirm check-in error:', err);
       toast.error('Gagal mengonfirmasi kehadiran: ' + err.message);
+    }
+  };
+
+  const handleToggleSouvenir = async () => {
+    if (!guest) return;
+    try {
+      const newStatus = !guest.is_souvenir_given;
+      const newGivenAt = newStatus ? new Date().toISOString() : null;
+
+      const { error } = await supabase
+        .from('buku_tamu')
+        .update({
+          is_souvenir_given: newStatus,
+          souvenir_given_at: newGivenAt
+        })
+        .eq('id', guest.id);
+
+      if (error && !error.message?.includes('schema cache')) throw error;
+
+      const updated: BukuTamu = {
+        ...guest,
+        is_souvenir_given: newStatus,
+        souvenir_given_at: newGivenAt
+      };
+
+      setGuest(updated);
+
+      if (newStatus) {
+        playChime(true);
+        toast.success(`🎁 Souvenir berhasil diserahkan untuk ${guest.nama_keluarga || guest.nama_tamu}!`);
+        logActivity(
+          session?.user?.email || 'resepsi@wedding.com',
+          'update',
+          'Tamu',
+          `Serah Souvenir: ${guest.nama_tamu} (${guest.ticket_code})`
+        );
+      } else {
+        toast('Status souvenir dibatalkan', { icon: 'ℹ️' });
+      }
+    } catch (err: any) {
+      toast.error('Gagal memperbarui status souvenir: ' + err.message);
     }
   };
 
@@ -399,16 +443,28 @@ const CheckinValidation: React.FC = () => {
             {/* Guest Identity Card */}
             <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl border border-amber-200/80 space-y-5">
               <div className="flex items-center justify-between pb-4 border-b border-stone-100">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">Data Undangan Terdaftar</span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">Data Undangan Terdaftar</span>
+                  {guest.kategori_tamu === 'VIP' ? (
+                    <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-200 text-stone-900 font-black text-[10px] uppercase tracking-wider shadow-sm">
+                      <Award size={11} className="text-stone-900" />
+                      <span>VIP</span>
+                    </span>
+                  ) : (
+                    <span className="inline-block px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[10px] font-bold uppercase">
+                      Reguler
+                    </span>
+                  )}
+                </div>
                 <span className="font-mono font-bold text-xs bg-stone-100 px-3 py-1 rounded-full text-[#6B0F1A] border border-stone-200">
                   {guest.ticket_code}
                 </span>
               </div>
 
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu Undangan</p>
+                <p className="text-[11px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu / Keluarga</p>
                 <h2 className="font-serif text-2xl md:text-3xl font-bold text-stone-900 leading-tight mt-0.5">
-                  {guest.nama_tamu}
+                  {guest.nama_keluarga || guest.nama_tamu}
                 </h2>
               </div>
 
@@ -424,9 +480,46 @@ const CheckinValidation: React.FC = () => {
                   <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Jumlah Kehadiran</p>
                   <p className="text-sm font-bold text-stone-900 mt-1 flex items-center space-x-1.5">
                     <Users size={16} className="text-[#6B0F1A]" />
-                    <span>{guest.jumlah_tamu} Orang (Pax)</span>
+                    <span>
+                      {guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Orang
+                      {guest.jatah_tamu ? ` (Jatah: ${guest.jatah_tamu})` : ''}
+                    </span>
                   </p>
                 </div>
+              </div>
+
+              {/* SOUVENIR STATUS CARD (1 PER UNDANGAN/KELUARGA) */}
+              <div className="p-4 bg-amber-50/60 rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center space-x-2.5">
+                  <Gift size={20} className="text-amber-700 shrink-0" />
+                  <div>
+                    <span className="text-xs font-bold text-stone-900 block">Status Souvenir (1 Paket per Keluarga)</span>
+                    <span className="text-[11px] text-stone-600 block">
+                      {guest.is_souvenir_given 
+                        ? `✓ Sudah diserahkan pada ${guest.souvenir_given_at ? new Date(guest.souvenir_given_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : 'lokasi'}` 
+                        : 'Belum diserahkan'}
+                    </span>
+                  </div>
+                </div>
+
+                {isAuthorized && (
+                  <div>
+                    {guest.is_souvenir_given ? (
+                      <div className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-800 text-xs font-bold">
+                        <PackageCheck size={14} className="text-emerald-700" />
+                        <span>✓ Souvenir Diberikan</span>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleToggleSouvenir}
+                        className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-1.5"
+                      >
+                        <Gift size={14} />
+                        <span>Berikan Souvenir</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {guest.no_whatsapp && (
@@ -507,7 +600,7 @@ const CheckinValidation: React.FC = () => {
                   className="w-full py-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2"
                 >
                   <CheckCircle2 size={16} />
-                  <span>Konfirmasi Kehadiran Tamu ({guest.jumlah_tamu} Pax)</span>
+                  <span>Konfirmasi Kehadiran Tamu ({guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Pax)</span>
                 </button>
               )}
 

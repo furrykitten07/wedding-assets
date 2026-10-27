@@ -317,16 +317,25 @@ class BukuTamuCloudBridge {
           } catch {
             parsed = {};
           }
+          const jatah = Number(parsed.jatah_tamu || parsed.jumlah_tamu) || 1;
+          const konfirmasi = Number(parsed.jumlah_hadir_konfirmasi || parsed.jumlah_tamu) || jatah;
           return {
             id: row.id,
             ticket_code: row.sender_email || parsed.ticket_code,
-            nama_tamu: parsed.nama_tamu || 'Tamu Undangan',
+            nama_tamu: parsed.nama_tamu || parsed.nama_keluarga || 'Tamu Undangan',
+            nama_keluarga: parsed.nama_keluarga || parsed.nama_tamu || 'Tamu Undangan',
             no_whatsapp: parsed.no_whatsapp || '',
             pihak: parsed.pihak || 'Pihak Fikri',
-            jumlah_tamu: Number(parsed.jumlah_tamu) || 1,
+            jumlah_tamu: konfirmasi,
+            jatah_tamu: jatah,
+            jumlah_hadir_konfirmasi: konfirmasi,
+            kategori_tamu: (parsed.kategori_tamu === 'VIP' ? 'VIP' : 'Reguler') as 'VIP' | 'Reguler',
             ucapan: parsed.ucapan || '',
             is_attended: Boolean(row.is_read || parsed.is_attended),
             attended_at: parsed.attended_at || null,
+            is_souvenir_given: Boolean(parsed.is_souvenir_given),
+            souvenir_given_at: parsed.souvenir_given_at || null,
+            ...parsed,
             created_at: row.created_at
           };
         });

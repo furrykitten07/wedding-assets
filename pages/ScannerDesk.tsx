@@ -26,7 +26,10 @@ import {
   X,
   Info,
   Maximize2,
-  Check
+  Check,
+  Gift,
+  Award,
+  PackageCheck
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase, logActivity } from '../supabase';
@@ -97,6 +100,8 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'attended' | 'pending'>('all');
   const [filterPihak, setFilterPihak] = useState<string>('all');
+  const [filterKategori, setFilterKategori] = useState<'all' | 'VIP' | 'Reguler'>('all');
+  const [filterSouvenir, setFilterSouvenir] = useState<'all' | 'given' | 'pending'>('all');
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -285,6 +290,54 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     }
   };
 
+  // Toggle Souvenir (1 per family/invitation, prevents double giveaway)
+  const handleToggleSouvenir = async (guest: BukuTamu) => {
+    try {
+      const newStatus = !guest.is_souvenir_given;
+      const newGivenAt = newStatus ? new Date().toISOString() : null;
+
+      const { error } = await supabase
+        .from('buku_tamu')
+        .update({
+          is_souvenir_given: newStatus,
+          souvenir_given_at: newGivenAt
+        })
+        .eq('id', guest.id);
+
+      if (error && !error.message?.includes('schema cache')) {
+        throw error;
+      }
+
+      const updated: BukuTamu = {
+        ...guest,
+        is_souvenir_given: newStatus,
+        souvenir_given_at: newGivenAt
+      };
+
+      setGuests((prev) =>
+        prev.map((g) => (g.id === guest.id ? updated : g))
+      );
+
+      if (scanResult && scanResult.guest.id === guest.id) {
+        setScanResult({
+          ...scanResult,
+          guest: updated
+        });
+      }
+
+      if (newStatus) {
+        if (soundEnabled) playChime(true);
+        toast.success(`🎁 Souvenir diserahkan untuk ${guest.nama_keluarga || guest.nama_tamu}`);
+        logActivity(userEmail, 'update', 'Tamu', `Serah Souvenir: ${guest.nama_tamu} (${guest.ticket_code})`);
+      } else {
+        toast('Status souvenir dibatalkan', { icon: 'ℹ️' });
+        logActivity(userEmail, 'update', 'Tamu', `Batal Souvenir: ${guest.nama_tamu}`);
+      }
+    } catch (err: any) {
+      toast.error('Gagal memperbarui status souvenir: ' + err.message);
+    }
+  };
+
   // Open Preview Modal
   const handleOpenPreview = async (guest: BukuTamu) => {
     try {
@@ -396,20 +449,28 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
   // Calculations & Metrics
   const totalRegistered = guests.length;
-  const totalPaxRegistered = guests.reduce((acc, g) => acc + (Number(g.jumlah_tamu) || 1), 0);
+  const totalPaxRegistered = guests.reduce((acc, g) => acc + (Number(g.jumlah_hadir_konfirmasi || g.jumlah_tamu) || 1), 0);
   const totalAttended = guests.filter((g) => g.is_attended).length;
   const totalPaxAttended = guests
     .filter((g) => g.is_attended)
-    .reduce((acc, g) => acc + (Number(g.jumlah_tamu) || 1), 0);
+    .reduce((acc, g) => acc + (Number(g.jumlah_hadir_konfirmasi || g.jumlah_tamu) || 1), 0);
   const totalPending = totalRegistered - totalAttended;
   const attendanceRate = totalRegistered > 0 ? Math.round((totalAttended / totalRegistered) * 100) : 0;
 
+  // VIP & Souvenir Metrics
+  const totalVip = guests.filter((g) => g.kategori_tamu === 'VIP').length;
+  const vipAttended = guests.filter((g) => g.kategori_tamu === 'VIP' && g.is_attended).length;
+  const totalSouvenirsGiven = guests.filter((g) => g.is_souvenir_given).length;
+
   // Filtered Guests
   const filteredGuests = guests.filter((g) => {
+    const search = searchTerm.toLowerCase().trim();
+    const guestName = (g.nama_keluarga || g.nama_tamu || '').toLowerCase();
     const matchesSearch =
-      g.nama_tamu.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      g.ticket_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (g.no_whatsapp && g.no_whatsapp.includes(searchTerm));
+      !search ||
+      guestName.includes(search) ||
+      g.ticket_code.toLowerCase().includes(search) ||
+      (g.no_whatsapp && g.no_whatsapp.includes(search));
 
     const matchesStatus =
       filterStatus === 'all' ||
@@ -418,7 +479,17 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
     const matchesPihak = filterPihak === 'all' || g.pihak === filterPihak;
 
-    return matchesSearch && matchesStatus && matchesPihak;
+    const matchesKategori =
+      filterKategori === 'all' ||
+      (filterKategori === 'VIP' && g.kategori_tamu === 'VIP') ||
+      (filterKategori === 'Reguler' && g.kategori_tamu !== 'VIP');
+
+    const matchesSouvenir =
+      filterSouvenir === 'all' ||
+      (filterSouvenir === 'given' && g.is_souvenir_given) ||
+      (filterSouvenir === 'pending' && !g.is_souvenir_given);
+
+    return matchesSearch && matchesStatus && matchesPihak && matchesKategori && matchesSouvenir;
   });
 
   // Pagination Logic
@@ -429,7 +500,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterStatus, filterPihak, pageSize]);
+  }, [searchTerm, filterStatus, filterPihak, filterKategori, filterSouvenir, pageSize]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-16 animate-fade-in font-sans">
@@ -471,6 +542,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
       {/* 2. REAL-TIME STATS 4-CARD BENTO */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Terdaftar */}
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
           <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Total Terdaftar</span>
           <div className="flex items-baseline space-x-2 mt-2">
@@ -479,6 +551,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
           </div>
         </div>
 
+        {/* Sudah Hadir */}
         <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm">
           <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Sudah Hadir</span>
           <div className="flex items-baseline space-x-2 mt-2">
@@ -487,24 +560,27 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Belum Hadir</span>
+        {/* Tamu VIP */}
+        <div className="bg-white p-5 rounded-2xl border border-amber-200/70 shadow-sm">
+          <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider block">Tamu Undangan VIP</span>
           <div className="flex items-baseline space-x-2 mt-2">
-            <span className="text-2xl font-bold text-gray-700">{totalPending}</span>
-            <span className="text-xs text-gray-400 font-medium">Undangan</span>
+            <span className="text-2xl font-bold text-amber-900">{totalVip}</span>
+            <span className="text-xs text-amber-800 font-bold">({vipAttended} Hadir)</span>
           </div>
         </div>
 
+        {/* Souvenir Diserahkan */}
         <div className="bg-white p-5 rounded-2xl border border-gold-200/70 shadow-sm">
-          <span className="text-[11px] font-bold text-maroon uppercase tracking-wider block">Tingkat Kehadiran</span>
+          <span className="text-[11px] font-bold text-maroon uppercase tracking-wider block">Souvenir Diserahkan</span>
           <div className="flex items-baseline space-x-2 mt-2">
-            <span className="text-2xl font-bold text-maroon">{attendanceRate}%</span>
-            <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden ml-2">
-              <div
-                className="bg-gradient-to-r from-gold-500 to-maroon h-full rounded-full transition-all duration-700"
-                style={{ width: `${attendanceRate}%` }}
-              />
-            </div>
+            <span className="text-2xl font-bold text-maroon">{totalSouvenirsGiven}</span>
+            <span className="text-xs text-gray-500 font-medium">/ {totalRegistered} Undangan</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden mt-2">
+            <div
+              className="bg-maroon h-full rounded-full transition-all duration-700"
+              style={{ width: `${totalRegistered > 0 ? Math.round((totalSouvenirsGiven / totalRegistered) * 100) : 0}%` }}
+            />
           </div>
         </div>
       </div>
@@ -553,17 +629,17 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               Daftar Tamu Undangan & Status Kehadiran
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Kelola daftar hadir, cari tamu, dan tandai check-in secara instan
+              Kelola daftar hadir, cari tamu, tandai check-in, dan serahkan souvenir secara instan
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Search Box */}
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full sm:w-60">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
-                placeholder="Cari nama, WA, tiket..."
+                placeholder="Cari nama keluarga, WA, tiket..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:border-maroon focus:bg-white"
@@ -591,6 +667,28 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               ))}
             </div>
 
+            {/* Kategori Selector (VIP / Reguler) */}
+            <select
+              value={filterKategori}
+              onChange={(e) => setFilterKategori(e.target.value as any)}
+              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon"
+            >
+              <option value="all">Semua Kategori</option>
+              <option value="VIP">★ Tamu VIP</option>
+              <option value="Reguler">Tamu Reguler</option>
+            </select>
+
+            {/* Souvenir Selector */}
+            <select
+              value={filterSouvenir}
+              onChange={(e) => setFilterSouvenir(e.target.value as any)}
+              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon"
+            >
+              <option value="all">Semua Souvenir</option>
+              <option value="given">✓ Sudah Diambil</option>
+              <option value="pending">🎁 Belum Diambil</option>
+            </select>
+
             {/* Pihak Selector */}
             <select
               value={filterPihak}
@@ -606,31 +704,32 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         </div>
 
         {/* SCROLLABLE TABLE CONTAINER */}
-        <div className="overflow-x-auto overflow-y-auto max-h-[480px] custom-scrollbar px-6 pb-2">
+        <div className="overflow-x-auto overflow-y-auto max-h-[500px] custom-scrollbar px-6 pb-2">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-[#FAF7F2] text-maroon uppercase tracking-wider font-serif font-bold sticky top-0 z-10 shadow-sm">
               <tr>
                 <th className="px-4 py-3.5 rounded-l-xl">Kode Tiket</th>
-                <th className="px-4 py-3.5">Nama Tamu & WhatsApp</th>
+                <th className="px-4 py-3.5">Nama Tamu / Keluarga</th>
+                <th className="px-4 py-3.5 text-center">Kategori</th>
                 <th className="px-4 py-3.5">Pihak</th>
-                <th className="px-4 py-3.5 text-center">Pax</th>
-                <th className="px-4 py-3.5">Status Kehadiran</th>
-                <th className="px-4 py-3.5">Ucapan Tamu</th>
+                <th className="px-4 py-3.5 text-center">Pax (Hadir/Jatah)</th>
+                <th className="px-4 py-3.5 text-center">Status Kehadiran</th>
+                <th className="px-4 py-3.5 text-center">Souvenir</th>
                 <th className="px-4 py-3.5 text-right rounded-r-xl">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">
                     <div className="w-8 h-8 border-2 border-gold-300 border-t-maroon rounded-full animate-spin mx-auto mb-2" />
                     Memuat data tamu...
                   </td>
                 </tr>
               ) : paginatedGuests.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
-                    Tidak ada data tamu yang cocok dengan filter.
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-400">
+                    Tidak ada data tamu yang cocok dengan filter pencarian.
                   </td>
                 </tr>
               ) : (
@@ -643,9 +742,9 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                       </span>
                     </td>
 
-                    {/* Nama Tamu */}
+                    {/* Nama Tamu / Keluarga */}
                     <td className="px-4 py-3.5">
-                      <p className="font-bold text-gray-900">{guest.nama_tamu}</p>
+                      <p className="font-bold text-gray-900">{guest.nama_keluarga || guest.nama_tamu}</p>
                       {guest.no_whatsapp ? (
                         <a
                           href={`https://wa.me/${guest.no_whatsapp.replace(/\D/g, '')}`}
@@ -658,6 +757,20 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                         </a>
                       ) : (
                         <span className="text-gray-400 text-[11px]">-</span>
+                      )}
+                    </td>
+
+                    {/* Kategori (VIP / Reguler) */}
+                    <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                      {guest.kategori_tamu === 'VIP' ? (
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-black text-[10px] uppercase tracking-wider">
+                          <Award size={11} className="text-amber-700" />
+                          <span>VIP</span>
+                        </span>
+                      ) : (
+                        <span className="inline-block px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-200 font-semibold text-[10px] uppercase">
+                          Reguler
+                        </span>
                       )}
                     </td>
 
@@ -676,13 +789,20 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                       </span>
                     </td>
 
-                    {/* Pax */}
-                    <td className="px-4 py-3.5 text-center font-bold text-gray-800 whitespace-nowrap">
-                      {guest.jumlah_tamu} Orang
+                    {/* Pax (Konfirmasi / Jatah) */}
+                    <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                      <span className="font-bold text-gray-900 block">
+                        {guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Pax
+                      </span>
+                      {guest.jatah_tamu && (
+                        <span className="text-[10px] text-gray-400 block font-normal">
+                          (Jatah: {guest.jatah_tamu})
+                        </span>
+                      )}
                     </td>
 
                     {/* Status Kehadiran */}
-                    <td className="px-4 py-3.5 whitespace-nowrap">
+                    <td className="px-4 py-3.5 text-center whitespace-nowrap">
                       {guest.is_attended ? (
                         <div>
                           <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">
@@ -707,9 +827,27 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                       )}
                     </td>
 
-                    {/* Ucapan */}
-                    <td className="px-4 py-3.5 max-w-xs truncate text-gray-600 italic">
-                      {guest.ucapan ? `"${guest.ucapan}"` : <span className="text-gray-300 italic">Tidak ada pesan</span>}
+                    {/* Status Souvenir (1 per undangan) */}
+                    <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                      {guest.is_souvenir_given ? (
+                        <button
+                          onClick={() => handleToggleSouvenir(guest)}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold text-[11px] hover:bg-emerald-100 transition-colors cursor-pointer"
+                          title="Klik untuk membatalkan status souvenir"
+                        >
+                          <PackageCheck size={13} className="text-emerald-600" />
+                          <span>✓ Diberikan</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleSouvenir(guest)}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] shadow-sm transition-all cursor-pointer"
+                          title="Serahkan 1 paket souvenir"
+                        >
+                          <Gift size={13} className="text-amber-700" />
+                          <span>Beri Souvenir</span>
+                        </button>
+                      )}
                     </td>
 
                     {/* Aksi */}
@@ -718,7 +856,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                         {/* 1-Click Check-in Toggle */}
                         <button
                           onClick={() => handleToggleAttendance(guest)}
-                          className={`p-1.5 rounded-lg transition-colors ${
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                             guest.is_attended
                               ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -731,7 +869,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                         {/* View Barcode */}
                         <button
                           onClick={() => handleOpenPreview(guest)}
-                          className="p-1.5 rounded-lg bg-gold-50 text-gold-800 hover:bg-gold-100 transition-colors"
+                          className="p-1.5 rounded-lg bg-gold-50 text-gold-800 hover:bg-gold-100 transition-colors cursor-pointer"
                           title="Lihat Barcode & Tiket"
                         >
                           <QrCode size={15} />
@@ -895,7 +1033,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               {/* Scan Result Popup Overlay inside Modal */}
               {scanResult && (
                 <div className="absolute inset-x-4 bottom-4 z-30 bg-white/95 backdrop-blur-md rounded-2xl p-5 shadow-2xl border border-amber-200 animate-fade-in text-gray-900">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="flex items-start space-x-3.5">
                       <div
                         className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
@@ -911,34 +1049,64 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                         )}
                       </div>
                       <div>
-                        <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block">
-                          {scanResult.wasAlreadyAttended
-                            ? 'Peringatan: Sudah Pernah Hadir'
-                            : 'Check-in Berhasil Terverifikasi'}
-                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block">
+                            {scanResult.wasAlreadyAttended
+                              ? 'Peringatan: Sudah Pernah Check-in'
+                              : 'Check-in Berhasil Terverifikasi'}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                            scanResult.guest.kategori_tamu === 'VIP'
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : 'bg-stone-100 text-stone-700'
+                          }`}>
+                            {scanResult.guest.kategori_tamu === 'VIP' ? '★ VIP' : 'Reguler'}
+                          </span>
+                        </div>
                         <h4 className="font-serif text-xl font-bold text-gray-900 mt-0.5">
-                          {scanResult.guest.nama_tamu}
+                          {scanResult.guest.nama_keluarga || scanResult.guest.nama_tamu}
                         </h4>
-                        <div className="flex items-center space-x-2 mt-1">
-                          <span className="font-mono text-xs bg-stone-100 px-2 py-0.5 rounded text-maroon font-bold">
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs">
+                          <span className="font-mono bg-stone-100 px-2 py-0.5 rounded text-maroon font-bold">
                             {scanResult.guest.ticket_code}
                           </span>
-                          <span className="text-xs bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded font-bold">
+                          <span className="bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded font-bold">
                             {scanResult.guest.pihak}
                           </span>
-                          <span className="text-xs bg-gray-100 text-gray-800 px-2 py-0.5 rounded font-bold">
-                            {scanResult.guest.jumlah_tamu} Pax
+                          <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-bold">
+                            Terkonfirmasi: {scanResult.guest.jumlah_hadir_konfirmasi || scanResult.guest.jumlah_tamu} Orang
+                            {scanResult.guest.jatah_tamu ? ` (Jatah: ${scanResult.guest.jatah_tamu})` : ''}
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => setScanResult(null)}
-                      className="px-4 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-md shrink-0 uppercase tracking-wider"
-                    >
-                      Lanjutkan
-                    </button>
+                    {/* Souvenir Button & Action */}
+                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-200">
+                      {/* Souvenir status & toggle */}
+                      {scanResult.guest.is_souvenir_given ? (
+                        <div className="px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center space-x-1.5 shadow-sm">
+                          <PackageCheck size={16} className="text-emerald-600" />
+                          <span>✓ Souvenir Sudah Diberikan</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleSouvenir(scanResult.guest)}
+                          className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-1.5 cursor-pointer"
+                          title="Serahkan 1 souvenir per keluarga"
+                        >
+                          <Gift size={16} />
+                          <span>Berikan Souvenir (1 Paket)</span>
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => setScanResult(null)}
+                        className="px-4 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-md shrink-0 uppercase tracking-wider"
+                      >
+                        Lanjutkan
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

@@ -24,7 +24,14 @@ import {
   MessageSquareHeart,
   Printer,
   ChevronRight,
-  Send
+  Send,
+  UserPlus,
+  Award,
+  Gift,
+  PackageCheck,
+  MessageCircle,
+  Save,
+  X
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase, logActivity } from '../supabase';
@@ -74,6 +81,19 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'attended' | 'pending'>('all');
   const [filterPihak, setFilterPihak] = useState<string>('all');
+  const [filterKategori, setFilterKategori] = useState<'all' | 'VIP' | 'Reguler'>('all');
+  const [filterSouvenir, setFilterSouvenir] = useState<'all' | 'given' | 'pending'>('all');
+
+  // Add Guest Modal state
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSubmittingGuest, setIsSubmittingGuest] = useState(false);
+  const [formData, setFormData] = useState({
+    nama_keluarga: '',
+    kategori_tamu: 'Reguler' as 'VIP' | 'Reguler',
+    jatah_tamu: 2,
+    pihak: 'Pihak Fikri' as 'Pihak Fikri' | 'Pihak Nadya' | 'Rekan Bersama',
+    no_whatsapp: ''
+  });
 
   // Scanner state
   const [isScanning, setIsScanning] = useState(false);
@@ -334,30 +354,146 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
   // Copy Public Link
   const handleCopyPublicLink = () => {
-    const publicUrl = `${window.location.origin}/#/guest-pass`;
+    const publicUrl = `${window.location.origin}/#/rsvp`;
     navigator.clipboard.writeText(publicUrl);
     setCopiedLink(true);
-    toast.success('Link Form Buku Tamu disalin ke clipboard!');
+    toast.success('Link Form RSVP Tamu disalin ke clipboard!');
     setTimeout(() => setCopiedLink(false), 2500);
+  };
+
+  // Add new guest family with unique invitation link
+  const handleCreateGuest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.nama_keluarga.trim()) {
+      toast.error('Nama keluarga / tamu wajib diisi');
+      return;
+    }
+
+    try {
+      setIsSubmittingGuest(true);
+      const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const newTicketCode = `FN-${randomCode}`;
+      const paxQuota = Math.max(1, Number(formData.jatah_tamu) || 2);
+
+      const payload = {
+        ticket_code: newTicketCode,
+        nama_tamu: formData.nama_keluarga.trim(),
+        nama_keluarga: formData.nama_keluarga.trim(),
+        kategori_tamu: formData.kategori_tamu,
+        jatah_tamu: paxQuota,
+        jumlah_tamu: paxQuota,
+        jumlah_hadir_konfirmasi: paxQuota,
+        pihak: formData.pihak,
+        no_whatsapp: formData.no_whatsapp.trim() || null,
+        is_attended: false,
+        is_souvenir_given: false
+      };
+
+      const { error } = await supabase.from('buku_tamu').insert([payload]);
+      if (error && !error.message?.includes('schema cache')) throw error;
+
+      toast.success(`Tamu ${formData.nama_keluarga} berhasil didaftarkan! Link undangan siap.`);
+      logActivity(userEmail, 'create', 'Tamu', `Daftarkan Tamu: ${formData.nama_keluarga} (${formData.kategori_tamu} - ${newTicketCode})`);
+
+      setIsAddModalOpen(false);
+      setFormData({
+        nama_keluarga: '',
+        kategori_tamu: 'Reguler',
+        jatah_tamu: 2,
+        pihak: 'Pihak Fikri',
+        no_whatsapp: ''
+      });
+
+      await fetchGuests();
+    } catch (err: any) {
+      toast.error('Gagal menambahkan tamu: ' + (err?.message || err));
+    } finally {
+      setIsSubmittingGuest(false);
+    }
+  };
+
+  // Toggle Souvenir (1 per family, prevents double giveaway)
+  const handleToggleSouvenir = async (guest: BukuTamu) => {
+    try {
+      const newStatus = !guest.is_souvenir_given;
+      const newGivenAt = newStatus ? new Date().toISOString() : null;
+
+      const { error } = await supabase
+        .from('buku_tamu')
+        .update({
+          is_souvenir_given: newStatus,
+          souvenir_given_at: newGivenAt
+        })
+        .eq('id', guest.id);
+
+      if (error && !error.message?.includes('schema cache')) throw error;
+
+      const updated = {
+        ...guest,
+        is_souvenir_given: newStatus,
+        souvenir_given_at: newGivenAt
+      };
+
+      setGuests((prev) => prev.map((g) => (g.id === guest.id ? updated : g)));
+
+      if (newStatus) {
+        playChime(true);
+        toast.success(`🎁 Souvenir diserahkan untuk ${guest.nama_keluarga || guest.nama_tamu}`);
+        logActivity(userEmail, 'update', 'Tamu', `Serah Souvenir: ${guest.nama_tamu} (${guest.ticket_code})`);
+      } else {
+        toast('Status souvenir dibatalkan', { icon: 'ℹ️' });
+      }
+    } catch (err: any) {
+      toast.error('Gagal memperbarui status souvenir: ' + err.message);
+    }
+  };
+
+  // Copy Single Unique Invitation Link
+  const handleCopyGuestUniqueLink = (guest: BukuTamu) => {
+    const uniqueUrl = `${window.location.origin}/#/rsvp?code=${guest.ticket_code}`;
+    navigator.clipboard.writeText(uniqueUrl);
+    toast.success(`Link undangan unik ${guest.nama_keluarga || guest.nama_tamu} disalin!`);
+  };
+
+  // WhatsApp Link Builder with personalized invitation
+  const getWhatsAppInvitationLink = (guest: BukuTamu) => {
+    const rawPhone = guest.no_whatsapp || '';
+    let clean = rawPhone.replace(/\D/g, '');
+    if (clean.startsWith('0')) clean = '62' + clean.slice(1);
+    else if (!clean.startsWith('62')) clean = '62' + clean;
+
+    const uniqueUrl = `${window.location.origin}/#/rsvp?code=${guest.ticket_code}`;
+    const name = guest.nama_keluarga || guest.nama_tamu;
+    const message = encodeURIComponent(
+      `Assalamu'alaikum Wr. Wb. Halo ${name},\n\nKami mengundang Anda & Keluarga untuk hadir di hari bahagia pernikahan kami, Fikri & Nadya.\n\nSilakan buka tautan undangan unik Anda di bawah ini untuk konfirmasi kehadiran dan mendapatkan QR Code Tiket Kehadiran:\n${uniqueUrl}\n\nTerima kasih.`
+    );
+    return `https://wa.me/${clean}?text=${message}`;
   };
 
   // Calculations & Metrics
   const totalRegistered = guests.length;
-  const totalPaxRegistered = guests.reduce((acc, g) => acc + (Number(g.jumlah_tamu) || 1), 0);
+  const totalPaxRegistered = guests.reduce((acc, g) => acc + (Number(g.jumlah_hadir_konfirmasi || g.jumlah_tamu) || 1), 0);
   const totalAttended = guests.filter((g) => g.is_attended).length;
   const totalPaxAttended = guests
     .filter((g) => g.is_attended)
-    .reduce((acc, g) => acc + (Number(g.jumlah_tamu) || 1), 0);
+    .reduce((acc, g) => acc + (Number(g.jumlah_hadir_konfirmasi || g.jumlah_tamu) || 1), 0);
   const totalPending = totalRegistered - totalAttended;
   const totalPaxPending = totalPaxRegistered - totalPaxAttended;
   const attendanceRate = totalRegistered > 0 ? Math.round((totalAttended / totalRegistered) * 100) : 0;
 
+  const totalVip = guests.filter((g) => g.kategori_tamu === 'VIP').length;
+  const vipAttended = guests.filter((g) => g.kategori_tamu === 'VIP' && g.is_attended).length;
+  const totalSouvenirsGiven = guests.filter((g) => g.is_souvenir_given).length;
+
   // Filtered Guests
   const filteredGuests = guests.filter((g) => {
+    const search = searchTerm.toLowerCase().trim();
+    const guestName = (g.nama_keluarga || g.nama_tamu || '').toLowerCase();
     const matchesSearch =
-      g.nama_tamu.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      g.ticket_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (g.no_whatsapp && g.no_whatsapp.includes(searchTerm));
+      !search ||
+      guestName.includes(search) ||
+      g.ticket_code.toLowerCase().includes(search) ||
+      (g.no_whatsapp && g.no_whatsapp.includes(search));
 
     const matchesStatus =
       filterStatus === 'all' ||
@@ -366,11 +502,21 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
     const matchesPihak = filterPihak === 'all' || g.pihak === filterPihak;
 
-    return matchesSearch && matchesStatus && matchesPihak;
+    const matchesKategori =
+      filterKategori === 'all' ||
+      (filterKategori === 'VIP' && g.kategori_tamu === 'VIP') ||
+      (filterKategori === 'Reguler' && g.kategori_tamu !== 'VIP');
+
+    const matchesSouvenir =
+      filterSouvenir === 'all' ||
+      (filterSouvenir === 'given' && g.is_souvenir_given) ||
+      (filterSouvenir === 'pending' && !g.is_souvenir_given);
+
+    return matchesSearch && matchesStatus && matchesPihak && matchesKategori && matchesSouvenir;
   });
 
   return (
-    <div className="space-y-8 animate-fade-in pb-12">
+    <div className="space-y-8 animate-fade-in pb-12 font-sans">
       {/* TOP HEADER & ACTION BAR */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-gold-200/60 shadow-sm">
         <div>
@@ -379,40 +525,49 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
             <span>Reception Desk & Check-in Portal</span>
           </div>
           <h1 className="font-serif text-2xl md:text-3xl font-bold text-maroon">
-            Administrasi Buku Tamu & Scan QR
+            Administrasi Buku Tamu &amp; Scan QR
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Kelola tamu undangan, salin link formulir publik, dan verifikasi barcode kehadiran di lokasi acara.
+            Daftarkan keluarga undangan, buat link unik, verifikasi QR kehadiran, dan serahkan souvenir.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Add Guest Button */}
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center space-x-2 px-5 py-3 rounded-2xl bg-maroon hover:bg-maroon-800 text-gold border border-gold-400 font-bold text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95 cursor-pointer"
+          >
+            <UserPlus size={16} />
+            <span>+ Tambah Undangan</span>
+          </button>
+
           {/* Copy Public Link Button */}
           <button
             onClick={handleCopyPublicLink}
-            className="flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-gold-50 hover:bg-gold-100 text-gold-900 border border-gold-300 font-bold text-xs transition-all shadow-sm active:scale-95"
+            className="flex items-center space-x-2 px-4 py-3 rounded-2xl bg-gold-50 hover:bg-gold-100 text-gold-900 border border-gold-300 font-bold text-xs transition-all shadow-sm active:scale-95 cursor-pointer"
           >
             {copiedLink ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} className="text-gold-700" />}
-            <span>{copiedLink ? 'Link Tersalin!' : 'Salin Link Form Tamu'}</span>
+            <span>{copiedLink ? 'Link Tersalin!' : 'Link RSVP Umum'}</span>
           </button>
 
           {/* Open Camera Scanner Button */}
           <button
             onClick={() => setIsScanning(!isScanning)}
-            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-md active:scale-95 ${
+            className={`flex items-center space-x-2 px-4 py-3 rounded-2xl font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer ${
               isScanning
                 ? 'bg-rose-700 hover:bg-rose-800 text-white'
-                : 'bg-maroon hover:bg-maroon/90 text-gold border border-gold-400'
+                : 'bg-stone-800 hover:bg-stone-900 text-stone-200'
             }`}
           >
             {isScanning ? <CameraOff size={16} /> : <Camera size={16} />}
-            <span>{isScanning ? 'Tutup Scanner Kamera' : 'Buka Scanner QR'}</span>
+            <span>{isScanning ? 'Tutup Scanner' : 'Buka Scanner'}</span>
           </button>
 
           {/* Refresh Data */}
           <button
             onClick={fetchGuests}
-            className="p-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+            className="p-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer"
             title="Refresh Data"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -450,34 +605,33 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
           </div>
         </div>
 
-        {/* Belum Hadir */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden">
+        {/* Tamu VIP */}
+        <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Belum Hadir</span>
-            <div className="w-9 h-9 rounded-xl bg-stone-100 text-stone-600 flex items-center justify-center font-bold">
-              <Clock size={18} />
+            <span className="text-xs uppercase font-bold text-amber-700 tracking-wider">Tamu VIP</span>
+            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
+              <Award size={18} className="text-amber-800" />
             </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-bold text-gray-700">{totalPending} <span className="text-xs font-normal text-gray-400">Undangan</span></h3>
-            <p className="text-xs text-stone-500 font-semibold mt-0.5">{totalPaxPending} Pax Pending</p>
+            <h3 className="text-2xl font-bold text-amber-900">{totalVip} <span className="text-xs font-normal text-stone-500">Undangan VIP</span></h3>
+            <p className="text-xs text-amber-800 font-semibold mt-0.5">{vipAttended} Hadir di Acara</p>
           </div>
         </div>
 
-        {/* Persentase Kehadiran */}
-        <div className="bg-white p-5 rounded-2xl border border-gold-200/70 shadow-sm">
+        {/* Souvenir Diserahkan */}
+        <div className="bg-white p-5 rounded-2xl border border-gold-200/70 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold text-maroon tracking-wider">Tingkat Kehadiran</span>
-            <span className="text-xs font-bold text-gold-700">{attendanceRate}%</span>
+            <span className="text-xs uppercase font-bold text-maroon tracking-wider">Souvenir Diserahkan</span>
+            <div className="w-9 h-9 rounded-xl bg-maroon/10 text-maroon flex items-center justify-center font-bold">
+              <Gift size={18} className="text-maroon" />
+            </div>
           </div>
           <div className="mt-3">
-            <h3 className="text-2xl font-bold text-maroon">{attendanceRate}%</h3>
-            <div className="w-full bg-gray-100 rounded-full h-2 mt-2 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-gold-500 to-maroon h-full rounded-full transition-all duration-700"
-                style={{ width: `${attendanceRate}%` }}
-              />
-            </div>
+            <h3 className="text-2xl font-bold text-maroon">{totalSouvenirsGiven} <span className="text-xs font-normal text-stone-500">/ {totalRegistered} Undangan</span></h3>
+            <p className="text-xs text-stone-500 font-semibold mt-0.5">
+              {totalRegistered > 0 ? Math.round((totalSouvenirsGiven / totalRegistered) * 100) : 0}% Souvenir Terbagi
+            </p>
           </div>
         </div>
       </div>
@@ -553,14 +707,14 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Cari nama tamu, WhatsApp, atau kode tiket..."
+              placeholder="Cari nama keluarga, WhatsApp, atau kode tiket..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:bg-white focus:border-maroon outline-none transition-all"
             />
           </div>
 
-          {/* Status & Pihak Filters */}
+          {/* Status, Kategori, Souvenir & Pihak Filters */}
           <div className="flex flex-wrap items-center gap-2">
             {/* Status Filter */}
             <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-xl">
@@ -572,7 +726,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                 <button
                   key={tab.key}
                   onClick={() => setFilterStatus(tab.key as any)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     filterStatus === tab.key
                       ? 'bg-maroon text-gold shadow-sm'
                       : 'text-gray-600 hover:text-gray-900'
@@ -582,6 +736,28 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                 </button>
               ))}
             </div>
+
+            {/* Kategori Filter */}
+            <select
+              value={filterKategori}
+              onChange={(e) => setFilterKategori(e.target.value as any)}
+              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon"
+            >
+              <option value="all">Semua Kategori</option>
+              <option value="VIP">★ Tamu VIP</option>
+              <option value="Reguler">Tamu Reguler</option>
+            </select>
+
+            {/* Souvenir Filter */}
+            <select
+              value={filterSouvenir}
+              onChange={(e) => setFilterSouvenir(e.target.value as any)}
+              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon"
+            >
+              <option value="all">Semua Souvenir</option>
+              <option value="given">✓ Sudah Diambil</option>
+              <option value="pending">🎁 Belum Diambil</option>
+            </select>
 
             {/* Pihak Filter */}
             <select
@@ -598,30 +774,31 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
         </div>
 
         {/* DATA TABLE */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-[#FAF7F2] text-maroon uppercase tracking-wider font-serif font-bold border-b border-gray-100">
+        <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className="bg-[#FAF7F2] text-maroon uppercase tracking-wider font-serif font-bold sticky top-0 z-10 shadow-sm">
               <tr>
                 <th className="px-6 py-4">Kode Tiket</th>
-                <th className="px-6 py-4">Nama Tamu & WhatsApp</th>
+                <th className="px-6 py-4">Nama Tamu / Keluarga</th>
+                <th className="px-6 py-4 text-center">Kategori</th>
                 <th className="px-6 py-4">Pihak</th>
-                <th className="px-6 py-4 text-center">Pax</th>
-                <th className="px-6 py-4">Ucapan & Doa</th>
-                <th className="px-6 py-4">Status Kehadiran</th>
-                <th className="px-6 py-4 text-right">Aksi</th>
+                <th className="px-6 py-4 text-center">Pax (Hadir/Jatah)</th>
+                <th className="px-6 py-4 text-center">Status Kehadiran</th>
+                <th className="px-6 py-4 text-center">Souvenir</th>
+                <th className="px-6 py-4 text-right">Aksi & Undangan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-400">
                     <div className="w-8 h-8 border-2 border-gold-300 border-t-maroon rounded-full animate-spin mx-auto mb-2" />
                     Memuat data buku tamu...
                   </td>
                 </tr>
               ) : filteredGuests.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-400">
                     Tidak ada data tamu yang sesuai kriteria pencarian.
                   </td>
                 </tr>
@@ -629,15 +806,17 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                 filteredGuests.map((guest) => (
                   <tr key={guest.id} className="hover:bg-amber-50/30 transition-colors">
                     {/* Kode Tiket */}
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <span className="font-mono font-bold text-maroon bg-stone-100 px-2.5 py-1 rounded-md border border-stone-200">
                         {guest.ticket_code}
                       </span>
                     </td>
 
-                    {/* Nama Tamu */}
+                    {/* Nama Tamu / Keluarga */}
                     <td className="px-6 py-4">
-                      <p className="font-bold text-gray-900 text-sm">{guest.nama_tamu}</p>
+                      <p className="font-bold text-gray-900 text-sm">
+                        {guest.nama_keluarga || guest.nama_tamu}
+                      </p>
                       {guest.no_whatsapp ? (
                         <a
                           href={`https://wa.me/${guest.no_whatsapp.replace(/\D/g, '')}`}
@@ -653,8 +832,22 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                       )}
                     </td>
 
+                    {/* Kategori (VIP / Reguler) */}
+                    <td className="px-6 py-4 text-center whitespace-nowrap">
+                      {guest.kategori_tamu === 'VIP' ? (
+                        <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-black text-[10px] uppercase tracking-wider">
+                          <Award size={11} className="text-amber-700" />
+                          <span>VIP</span>
+                        </span>
+                      ) : (
+                        <span className="inline-block px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-200 font-semibold text-[10px] uppercase">
+                          Reguler
+                        </span>
+                      )}
+                    </td>
+
                     {/* Pihak */}
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold ${
                           guest.pihak === 'Pihak Fikri'
@@ -669,17 +862,19 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                     </td>
 
                     {/* Jumlah Tamu (Pax) */}
-                    <td className="px-6 py-4 text-center font-bold text-gray-800">
-                      {guest.jumlah_tamu} Orang
-                    </td>
-
-                    {/* Ucapan */}
-                    <td className="px-6 py-4 max-w-xs truncate text-gray-600 italic">
-                      {guest.ucapan ? `"${guest.ucapan}"` : <span className="text-gray-300 italic">Tidak ada pesan</span>}
+                    <td className="px-6 py-4 text-center whitespace-nowrap">
+                      <span className="font-bold text-gray-900 block">
+                        {guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Orang
+                      </span>
+                      {guest.jatah_tamu && (
+                        <span className="text-[10px] text-gray-400 font-normal block">
+                          (Jatah: {guest.jatah_tamu})
+                        </span>
+                      )}
                     </td>
 
                     {/* Status Kehadiran */}
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 text-center whitespace-nowrap">
                       {guest.is_attended ? (
                         <div>
                           <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">
@@ -704,13 +899,58 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                       )}
                     </td>
 
+                    {/* Status Souvenir (1 per undangan) */}
+                    <td className="px-6 py-4 text-center whitespace-nowrap">
+                      {guest.is_souvenir_given ? (
+                        <button
+                          onClick={() => handleToggleSouvenir(guest)}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold text-[11px] hover:bg-emerald-100 transition-colors cursor-pointer"
+                          title="Klik untuk membatalkan status souvenir"
+                        >
+                          <PackageCheck size={13} className="text-emerald-600" />
+                          <span>✓ Diberikan</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleSouvenir(guest)}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] shadow-sm transition-all cursor-pointer"
+                          title="Serahkan 1 paket souvenir untuk keluarga ini"
+                        >
+                          <Gift size={13} className="text-amber-700" />
+                          <span>Beri Souvenir</span>
+                        </button>
+                      )}
+                    </td>
+
                     {/* Action Buttons */}
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-6 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end space-x-1.5">
+                        {/* Copy Unique Invitation Link */}
+                        <button
+                          onClick={() => handleCopyGuestUniqueLink(guest)}
+                          className="p-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors cursor-pointer"
+                          title="Salin Link Undangan Unik Keluarga"
+                        >
+                          <Copy size={15} />
+                        </button>
+
+                        {/* WhatsApp Direct Share */}
+                        {guest.no_whatsapp && (
+                          <a
+                            href={getWhatsAppInvitationLink(guest)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors cursor-pointer"
+                            title="Kirim Undangan via WhatsApp"
+                          >
+                            <MessageCircle size={15} />
+                          </a>
+                        )}
+
                         {/* Toggle Attendance */}
                         <button
                           onClick={() => handleToggleAttendance(guest)}
-                          className={`p-1.5 rounded-lg transition-colors ${
+                          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                             guest.is_attended
                               ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -723,7 +963,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                         {/* View Barcode */}
                         <button
                           onClick={() => handleOpenPreview(guest)}
-                          className="p-1.5 rounded-lg bg-gold-50 text-gold-800 hover:bg-gold-100 transition-colors"
+                          className="p-1.5 rounded-lg bg-gold-50 text-gold-800 hover:bg-gold-100 transition-colors cursor-pointer"
                           title="Lihat Barcode & Tiket"
                         >
                           <QrCode size={15} />
@@ -732,7 +972,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                         {/* Delete */}
                         <button
                           onClick={() => handleDeleteGuest(guest)}
-                          className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                          className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
                           title="Hapus Data Tamu"
                         >
                           <Trash2 size={15} />
@@ -886,6 +1126,151 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
               </button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* MODAL 3: TAMBAH TAMU UNDANGAN & JATAH TIKET */}
+      {isAddModalOpen && (
+        <Modal
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          title="Daftarkan Tamu Undangan & Jatah Tiket"
+          maxWidth="max-w-xl"
+        >
+          <form onSubmit={handleCreateGuest} className="space-y-5">
+            {/* Nama Tamu / Keluarga */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
+                Nama Tamu / Keluarga <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="Contoh: Keluarga Bpk. Ir. Hartono / dr. Tirta & Rekan"
+                value={formData.nama_keluarga}
+                onChange={(e) => setFormData({ ...formData, nama_keluarga: e.target.value })}
+                className="w-full px-4 py-3 rounded-xl border border-stone-300 font-bold text-stone-800 text-xs outline-none focus:border-maroon shadow-sm"
+              />
+            </div>
+
+            {/* Kategori Tamu (VIP / Reguler) */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
+                Kategori Undangan
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, kategori_tamu: 'VIP' })}
+                  className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+                    formData.kategori_tamu === 'VIP'
+                      ? 'bg-amber-100 border-amber-400 text-amber-950 shadow-sm ring-1 ring-amber-400'
+                      : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100'
+                  }`}
+                >
+                  <Award size={15} className="text-amber-700" />
+                  <span>★ Tamu VIP</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, kategori_tamu: 'Reguler' })}
+                  className={`p-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+                    formData.kategori_tamu === 'Reguler'
+                      ? 'bg-stone-200 border-stone-400 text-stone-900 shadow-sm ring-1 ring-stone-400'
+                      : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100'
+                  }`}
+                >
+                  <Users size={15} className="text-stone-500" />
+                  <span>Tamu Reguler</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Jatah Tamu & Pihak (2 cols) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
+                  Jatah Tamu (Maksimal Pax)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={formData.jatah_tamu}
+                    onChange={(e) => setFormData({ ...formData, jatah_tamu: Math.max(1, Number(e.target.value)) })}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-300 font-bold text-stone-800 text-xs outline-none focus:border-maroon shadow-sm"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-bold">
+                    Orang
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
+                  Pihak Pengundang
+                </label>
+                <select
+                  value={formData.pihak}
+                  onChange={(e) => setFormData({ ...formData, pihak: e.target.value as any })}
+                  className="w-full px-3.5 py-3 rounded-xl border border-stone-300 font-bold text-stone-800 text-xs outline-none focus:border-maroon shadow-sm cursor-pointer"
+                >
+                  <option value="Pihak Fikri">Pihak Fikri (Pria)</option>
+                  <option value="Pihak Nadya">Pihak Nadya (Wanita)</option>
+                  <option value="Rekan Bersama">Rekan Bersama</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Nomor WhatsApp */}
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
+                Nomor WhatsApp (Opsional)
+              </label>
+              <div className="relative">
+                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={15} />
+                <input
+                  type="text"
+                  placeholder="0812xxxx atau 62812xxxx"
+                  value={formData.no_whatsapp}
+                  onChange={(e) => setFormData({ ...formData, no_whatsapp: e.target.value })}
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-stone-300 font-mono font-bold text-stone-800 text-xs outline-none focus:border-maroon shadow-sm"
+                />
+              </div>
+              <p className="text-[11px] text-stone-400">
+                Untuk mengirim tautan undangan personal langsung ke WhatsApp tamu.
+              </p>
+            </div>
+
+            {/* Information Banner */}
+            <div className="p-3.5 bg-amber-50 rounded-xl border border-gold-200 text-xs text-amber-950 flex items-start space-x-2.5">
+              <Sparkles size={16} className="text-gold shrink-0 mt-0.5" />
+              <p className="text-[11px] leading-relaxed">
+                Sistem akan membuat <strong>Link Undangan Unik</strong> dan <strong>QR Code Tiket</strong> otomatis untuk keluarga ini. Tamu dapat mengonfirmasi jumlah kehadiran saat membuka link.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end space-x-2 pt-3 border-t border-stone-200">
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-stone-300 text-stone-600 font-bold text-xs hover:bg-stone-100 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmittingGuest}
+                className="px-5 py-2.5 rounded-xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs uppercase tracking-wider shadow-md border border-gold/40 transition-all flex items-center space-x-1.5 disabled:opacity-50"
+              >
+                <Save size={15} />
+                <span>{isSubmittingGuest ? 'Menyimpan...' : 'Simpan & Buat Undangan'}</span>
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>

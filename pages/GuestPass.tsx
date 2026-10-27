@@ -16,7 +16,12 @@ import {
   MessageSquareHeart, 
   ArrowLeft,
   RotateCcw,
-  QrCode as QrIcon
+  QrCode as QrIcon,
+  Download,
+  Award,
+  Gift,
+  Search,
+  Edit3
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
@@ -27,7 +32,10 @@ const GuestPass: React.FC = () => {
   const ticketCodeParam = searchParams.get('code');
   const navigate = useNavigate();
 
-  // Form States
+  // Search by code state
+  const [searchCodeInput, setSearchCodeInput] = useState('');
+
+  // Form States (for self-registration if without code)
   const [namaTamu, setNamaTamu] = useState('');
   const [noWhatsapp, setNoWhatsapp] = useState('');
   const [pihak, setPihak] = useState<'Pihak Fikri' | 'Pihak Nadya' | 'Rekan Bersama'>('Pihak Fikri');
@@ -42,6 +50,13 @@ const GuestPass: React.FC = () => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
+  // Confirmation Flow States
+  const [isEditingConfirmation, setIsEditingConfirmation] = useState(false);
+  const [confirmedPax, setConfirmedPax] = useState<number>(1);
+  const [attendanceStatus, setAttendanceStatus] = useState<'hadir' | 'tidak_hadir'>('hadir');
+  const [guestUcapan, setGuestUcapan] = useState('');
+  const [savingConfirmation, setSavingConfirmation] = useState(false);
+
   // Attendance celebratory flag
   const [justAttended, setJustAttended] = useState(false);
   const prevAttendedRef = useRef<boolean>(false);
@@ -50,19 +65,31 @@ const GuestPass: React.FC = () => {
   const fetchTicket = async (code: string) => {
     try {
       setLoadingTicket(true);
+      const cleanCode = code.toUpperCase().trim();
       const { data, error } = await supabase
         .from('buku_tamu')
         .select('*')
-        .eq('ticket_code', code.toUpperCase().trim());
+        .eq('ticket_code', cleanCode);
 
-      if (error) throw error;
+      if (error && !error.message?.includes('schema cache')) {
+        throw error;
+      }
       const found = Array.isArray(data) ? data[0] : data;
       if (found) {
         setTicket(found);
+        const jatah = Number(found.jatah_tamu || found.jumlah_tamu) || 1;
+        const initialConfirmed = Number(found.jumlah_hadir_konfirmasi || found.jumlah_tamu) || jatah;
+        setConfirmedPax(initialConfirmed);
+        setGuestUcapan(found.ucapan || '');
+
+        // If ticket was pre-registered by admin and guest has not confirmed yet
+        const isAlreadyConfirmed = Boolean((found as any).is_confirmed || found.attended_at || found.jumlah_hadir_konfirmasi);
+        setIsEditingConfirmation(!isAlreadyConfirmed);
+
         // Generate QR Code with Full Check-in Validation URL
         const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(found.ticket_code)}`;
         const qrUrl = await QRCode.toDataURL(checkinUrl, {
-          width: 320,
+          width: 340,
           margin: 2,
           color: {
             dark: '#6B0F1A', // Royal Maroon
@@ -76,7 +103,7 @@ const GuestPass: React.FC = () => {
         }
         prevAttendedRef.current = Boolean(found.is_attended);
       } else {
-        toast.error('Kode tiket tidak ditemukan');
+        toast.error(`Kode undangan "${cleanCode}" tidak ditemukan`);
       }
     } catch (err: any) {
       console.error('Error fetch ticket:', err);
@@ -122,36 +149,79 @@ const GuestPass: React.FC = () => {
     return () => clearInterval(interval);
   }, [ticket]);
 
-  // Handle Form Submit
+  // Step 3: Handle Confirmation of Attendance & Generate QR
+  const handleConfirmAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ticket) return;
+
+    try {
+      setSavingConfirmation(true);
+      const jatah = Number(ticket.jatah_tamu || ticket.jumlah_tamu) || 1;
+      const finalCount = attendanceStatus === 'tidak_hadir' ? 0 : Math.min(Math.max(1, confirmedPax), jatah);
+
+      const payload = {
+        jumlah_tamu: finalCount > 0 ? finalCount : 1,
+        jumlah_hadir_konfirmasi: finalCount,
+        ucapan: guestUcapan.trim() || null,
+        is_confirmed: true
+      };
+
+      const { error } = await supabase
+        .from('buku_tamu')
+        .update(payload)
+        .eq('id', ticket.id);
+
+      if (error && !error.message?.includes('schema cache')) {
+        throw error;
+      }
+
+      setTicket({
+        ...ticket,
+        ...payload
+      });
+
+      setIsEditingConfirmation(false);
+      toast.success('Konfirmasi kehadiran tersimpan! QR Code Anda siap.');
+    } catch (err: any) {
+      toast.error('Gagal menyimpan konfirmasi: ' + (err?.message || err));
+    } finally {
+      setSavingConfirmation(false);
+    }
+  };
+
+  // Handle Form Submit for new guest self-registration
   const handleSaveRSVP = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!namaTamu.trim()) {
-      toast.error('Mohon isi nama lengkap / panggilan');
+      toast.error('Mohon isi nama lengkap / keluarga');
       return;
     }
 
     try {
       setSubmitting(true);
-      // Generate Unique Ticket Code FN-XXXXXX
       const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
       const newTicketCode = `FN-${randomCode}`;
 
       const payload = {
         ticket_code: newTicketCode,
         nama_tamu: namaTamu.trim(),
+        nama_keluarga: namaTamu.trim(),
         no_whatsapp: noWhatsapp.trim() || null,
         pihak,
         jumlah_tamu: Number(jumlahTamu) || 1,
+        jatah_tamu: Number(jumlahTamu) || 1,
+        jumlah_hadir_konfirmasi: Number(jumlahTamu) || 1,
+        kategori_tamu: 'Reguler',
         ucapan: ucapan.trim() || null,
-        is_attended: false
+        is_attended: false,
+        is_souvenir_given: false,
+        is_confirmed: true
       };
 
-      const { data, error } = await supabase.from('buku_tamu').insert([payload]);
-      if (error) throw error;
+      const { error } = await supabase.from('buku_tamu').insert([payload]);
+      if (error && !error.message?.includes('schema cache')) throw error;
 
-      toast.success('Berhasil mengisi buku tamu! Barcode Anda siap.');
-
-      // Update URL query param to ticket code
+      toast.success('Buku tamu terisi! Barcode Anda siap.');
       setSearchParams({ code: newTicketCode });
     } catch (err: any) {
       console.error('RSVP save error:', err);
@@ -162,7 +232,7 @@ const GuestPass: React.FC = () => {
   };
 
   const handleCopyLink = () => {
-    const fullUrl = `${window.location.origin}/#/guest-pass?code=${ticket?.ticket_code}`;
+    const fullUrl = `${window.location.origin}/#/rsvp?code=${ticket?.ticket_code}`;
     navigator.clipboard.writeText(fullUrl);
     setCopiedLink(true);
     toast.success('Tautan tiket berhasil disalin!');
@@ -186,7 +256,15 @@ const GuestPass: React.FC = () => {
     setTicket(null);
     setQrDataUrl('');
     setJustAttended(false);
+    setIsEditingConfirmation(false);
     prevAttendedRef.current = false;
+  };
+
+  const handleSearchCode = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchCodeInput.trim()) {
+      setSearchParams({ code: searchCodeInput.trim().toUpperCase() });
+    }
   };
 
   return (
@@ -203,11 +281,11 @@ const GuestPass: React.FC = () => {
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center space-x-2 px-3.5 py-1.5 rounded-full bg-amber-50 border border-amber-200/70 text-amber-900 text-xs font-semibold tracking-widest uppercase mb-3 shadow-sm">
             <Sparkles size={13} className="text-amber-600 animate-spin" style={{ animationDuration: '8s' }} />
-            <span>Digital Guest Pass & RSVP</span>
+            <span>Digital Guest Pass &amp; RSVP</span>
           </div>
 
           <h1 className="font-serif text-3xl md:text-4xl font-bold text-[#6B0F1A] tracking-tight">
-            Fikri & Nadya
+            Fikri &amp; Nadya
           </h1>
           <p className="text-xs uppercase tracking-[0.25em] text-amber-800/80 font-medium mt-1">
             The Wedding Celebration
@@ -218,13 +296,163 @@ const GuestPass: React.FC = () => {
         {loadingTicket && (
           <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border border-amber-100 shadow-xl">
             <div className="w-12 h-12 border-3 border-amber-300 border-t-[#6B0F1A] rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-sm font-medium text-stone-600">Memuat data tiket kehadiran...</p>
+            <p className="text-sm font-medium text-stone-600">Memuat data undangan pernikahan...</p>
           </div>
         )}
 
-        {/* VIEW 1: TICKET PASS CARD (When ticket is loaded) */}
-        {!loadingTicket && ticket && (
+        {/* VIEW 1A: STEP 3 - FORM KONFIRMASI KEHADIRAN (Sebelum atau saat ubah konfirmasi) */}
+        {!loadingTicket && ticket && isEditingConfirmation && (
+          <div className="bg-white rounded-3xl shadow-2xl border-2 border-gold-200 overflow-hidden animate-fade-in space-y-0">
+            {/* Top Banner */}
+            <div className="bg-gradient-to-r from-[#6B0F1A] via-[#800000] to-[#550B14] p-6 text-white text-center relative">
+              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-white/15 border border-white/20 text-gold text-[10px] font-bold tracking-widest uppercase mb-2">
+                <Heart size={12} className="fill-gold text-gold" />
+                <span>Konfirmasi Kehadiran Tamu</span>
+              </div>
+              <h2 className="font-serif text-2xl font-bold">
+                Yth. {ticket.nama_keluarga || ticket.nama_tamu}
+              </h2>
+              <div className="flex items-center justify-center space-x-2 mt-2">
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                  ticket.kategori_tamu === 'VIP' 
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-200 text-stone-900 border border-amber-300 shadow-sm' 
+                    : 'bg-white/20 text-amber-100'
+                }`}>
+                  {ticket.kategori_tamu === 'VIP' ? '★ Undangan VIP' : 'Undangan Reguler'}
+                </span>
+                <span className="text-xs text-amber-100/80">•</span>
+                <span className="text-xs text-amber-100/90 font-medium">
+                  {ticket.pihak}
+                </span>
+              </div>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleConfirmAttendance} className="p-6 md:p-8 space-y-6">
+              
+              {/* Jatah Undangan Box */}
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-gold-200 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-stone-500 tracking-wider block">
+                    Jatah Undangan Keluarga
+                  </span>
+                  <span className="font-serif text-lg font-bold text-[#6B0F1A]">
+                    Maksimal {ticket.jatah_tamu || ticket.jumlah_tamu || 1} Orang
+                  </span>
+                </div>
+                <div className="w-12 h-12 rounded-2xl bg-maroon/10 text-maroon flex items-center justify-center">
+                  <Users size={22} className="text-[#6B0F1A]" />
+                </div>
+              </div>
+
+              {/* Status Kehadiran Radio */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-stone-700 block">
+                  Rencana Kehadiran Anda <span className="text-rose-600">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAttendanceStatus('hadir')}
+                    className={`p-3.5 rounded-2xl border text-xs font-bold transition-all flex items-center justify-center space-x-2 ${
+                      attendanceStatus === 'hadir'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-sm ring-1 ring-emerald-500'
+                        : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100'
+                    }`}
+                  >
+                    <CheckCircle2 size={16} className={attendanceStatus === 'hadir' ? 'text-emerald-600' : 'text-stone-400'} />
+                    <span>✓ Hadir Memenuhi Undangan</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAttendanceStatus('tidak_hadir')}
+                    className={`p-3.5 rounded-2xl border text-xs font-bold transition-all flex items-center justify-center space-x-2 ${
+                      attendanceStatus === 'tidak_hadir'
+                        ? 'bg-rose-50 border-rose-500 text-rose-800 shadow-sm ring-1 ring-rose-500'
+                        : 'bg-stone-50 border-stone-200 text-stone-600 hover:bg-stone-100'
+                    }`}
+                  >
+                    <span>✗ Berhalangan Hadir</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Jumlah Hadir Selector (Jika Hadir) */}
+              {attendanceStatus === 'hadir' && (
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-stone-700 block">
+                    Berapa orang yang akan hadir? <span className="text-rose-600">*</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from({ length: Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1) }, (_, i) => i + 1).map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setConfirmedPax(num)}
+                        className={`flex-1 min-w-[70px] py-3 rounded-xl font-bold text-xs border transition-all ${
+                          confirmedPax === num
+                            ? 'bg-maroon text-gold border-gold shadow-md ring-1 ring-gold'
+                            : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
+                        }`}
+                      >
+                        {num} Orang
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-stone-400 italic">
+                    * Mohon sesuaikan jumlah orang yang hadir demi kenyamanan pengaturan tempat duduk dan katering.
+                  </p>
+                </div>
+              )}
+
+              {/* Ucapan & Doa Restu */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-stone-700 block">
+                  Ucapan &amp; Doa Restu untuk Pengantin
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Tuliskan ucapan dan doa terbaik Anda untuk Fikri & Nadya..."
+                  value={guestUcapan}
+                  onChange={(e) => setGuestUcapan(e.target.value)}
+                  className="w-full p-4 rounded-xl border border-stone-200 text-xs text-stone-800 outline-none focus:border-maroon focus:ring-1 focus:ring-maroon bg-stone-50/50 resize-none"
+                />
+              </div>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={savingConfirmation}
+                className="w-full py-4 rounded-2xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs uppercase tracking-widest shadow-xl border border-gold/40 transition-all flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
+              >
+                {savingConfirmation ? (
+                  <span>Menyimpan Konfirmasi...</span>
+                ) : (
+                  <>
+                    <QrIcon size={16} />
+                    <span>Konfirmasi Kehadiran &amp; Dapatkan QR Code</span>
+                  </>
+                )}
+              </button>
+
+              {ticket.is_attended && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditingConfirmation(false)}
+                  className="w-full text-center text-xs text-stone-500 hover:underline pt-1"
+                >
+                  Kembali ke Tampilan QR Code
+                </button>
+              )}
+            </form>
+          </div>
+        )}
+
+        {/* VIEW 1B: TICKET PASS CARD WITH QR CODE (Ketika sudah konfirmasi) */}
+        {!loadingTicket && ticket && !isEditingConfirmation && (
           <div className="space-y-5 animate-fade-in">
+            
             {/* Live Attended Celebration Notification */}
             {ticket.is_attended && (
               <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-5 rounded-2xl shadow-lg border border-emerald-400/30 text-center relative overflow-hidden animate-bounce-short">
@@ -257,21 +485,29 @@ const GuestPass: React.FC = () => {
                   <span>Siap Ditunjukkan di Meja Penerima Tamu</span>
                 </div>
                 <p className="text-[11px] text-stone-500 mt-1">
-                  Halaman ini akan otomatis terupdate saat barcode Anda discan di lokasi.
+                  Halaman ini akan otomatis terupdate saat barcode Anda discan di lokasi acara.
                 </p>
               </div>
             )}
 
             {/* THE WEDDING PASS CARD */}
-            <div className="bg-white rounded-3xl overflow-hidden shadow-2xl border border-amber-200/80 relative">
+            <div className="bg-white rounded-3xl overflow-hidden shadow-2xl border-2 border-amber-200/80 relative">
               {/* Header Card Pattern */}
               <div className="bg-gradient-to-r from-[#6B0F1A] via-[#800000] to-[#550B14] p-6 text-white text-center relative">
                 <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:12px_12px]" />
                 <div className="relative z-10">
-                  <span className="inline-block px-3 py-1 rounded-full bg-white/15 text-amber-200 text-[10px] font-bold tracking-[0.2em] uppercase backdrop-blur-sm border border-white/10 mb-2">
-                    Official Wedding Pass
-                  </span>
-                  <h2 className="font-serif text-2xl font-bold tracking-tight">Fikri & Nadya</h2>
+                  <div className="flex items-center justify-center space-x-2 mb-2">
+                    <span className="inline-block px-3 py-1 rounded-full bg-white/15 text-amber-200 text-[10px] font-bold tracking-[0.2em] uppercase backdrop-blur-sm border border-white/10">
+                      Official Wedding Pass
+                    </span>
+                    {ticket.kategori_tamu === 'VIP' && (
+                      <span className="inline-flex items-center space-x-1 px-3 py-1 rounded-full bg-gradient-to-r from-amber-400 to-amber-200 text-stone-900 text-[10px] font-black uppercase tracking-wider shadow-sm">
+                        <Award size={12} className="text-stone-900" />
+                        <span>VIP</span>
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="font-serif text-2xl font-bold tracking-tight">Fikri &amp; Nadya</h2>
                   <p className="text-[11px] text-amber-100/90 font-light mt-0.5">Walimatul Ursy</p>
                 </div>
               </div>
@@ -305,6 +541,18 @@ const GuestPass: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Download QR Button (Highlight) */}
+                <div className="pt-3">
+                  <a
+                    href={qrDataUrl}
+                    download={`QR-Undangan-${ticket.ticket_code}.png`}
+                    className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-all shadow-sm active:scale-95"
+                  >
+                    <Download size={15} className="text-amber-700" />
+                    <span>Download / Simpan Gambar QR Code</span>
+                  </a>
+                </div>
+
                 {/* Dashed Tear-off Line */}
                 <div className="relative my-6">
                   <div className="absolute inset-0 flex items-center">
@@ -318,9 +566,22 @@ const GuestPass: React.FC = () => {
 
                 {/* Guest Details */}
                 <div className="space-y-4 text-left">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu Undangan</p>
-                    <p className="font-serif text-xl font-bold text-stone-900 leading-tight mt-0.5">{ticket.nama_tamu}</p>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu / Keluarga</p>
+                      <p className="font-serif text-xl font-bold text-stone-900 leading-tight mt-0.5">
+                        {ticket.nama_keluarga || ticket.nama_tamu}
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => setIsEditingConfirmation(true)}
+                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold text-maroon hover:bg-gold-50 border border-gold-200 transition-colors"
+                      title="Ubah Konfirmasi Kehadiran"
+                    >
+                      <Edit3 size={13} />
+                      <span>Ubah</span>
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 pt-2 border-t border-stone-100">
@@ -331,11 +592,25 @@ const GuestPass: React.FC = () => {
                       </span>
                     </div>
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Jumlah Kehadiran</p>
+                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Konfirmasi Kehadiran</p>
                       <p className="text-sm font-bold text-stone-800 mt-1 flex items-center space-x-1.5">
                         <Users size={15} className="text-[#6B0F1A]" />
-                        <span>{ticket.jumlah_tamu} Orang (Pax)</span>
+                        <span>
+                          {ticket.jumlah_hadir_konfirmasi || ticket.jumlah_tamu} Orang
+                          {ticket.jatah_tamu ? ` (Jatah: ${ticket.jatah_tamu})` : ''}
+                        </span>
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Souvenir Info Card */}
+                  <div className="p-3 bg-amber-50/60 rounded-xl border border-gold-200 flex items-center space-x-2.5 text-xs text-amber-950">
+                    <Gift size={18} className="text-amber-700 shrink-0" />
+                    <div>
+                      <span className="font-bold block">1 Paket Souvenir per Undangan / Keluarga</span>
+                      <span className="text-[11px] text-amber-800">
+                        {ticket.is_souvenir_given ? '✓ Souvenir telah diserahkan di meja resepsi.' : 'Disediakan dan diserahkan saat check-in di meja penerima tamu.'}
+                      </span>
                     </div>
                   </div>
 
@@ -343,7 +618,7 @@ const GuestPass: React.FC = () => {
                     <div className="pt-3 border-t border-stone-100">
                       <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold flex items-center space-x-1">
                         <MessageSquareHeart size={12} className="text-amber-600" />
-                        <span>Doa & Ucapan Anda</span>
+                        <span>Doa &amp; Ucapan Anda</span>
                       </p>
                       <p className="text-xs text-stone-600 italic bg-amber-50/50 p-3 rounded-xl border border-amber-100 mt-1">
                         "{ticket.ucapan}"
@@ -385,163 +660,168 @@ const GuestPass: React.FC = () => {
                 className="flex items-center justify-center space-x-2 py-3.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold text-xs transition-all"
               >
                 <RotateCcw size={15} />
-                <span>Isi Tamu Lain</span>
+                <span>Cari / Isi Tamu Lain</span>
               </button>
             </div>
 
             <p className="text-center text-[11px] text-stone-400 pt-2">
-              💡 Tip: Simpan tautan ini atau tangkap layar (screenshot) untuk ditunjukkan saat tiba di resepsi.
+              💡 Simpan QR Code di atas ke galeri HP Anda untuk ditunjukkan saat tiba di meja penerima tamu.
             </p>
           </div>
         )}
 
-        {/* VIEW 2: RSVP FORM (When no ticket is loaded yet) */}
+        {/* VIEW 2: RSVP FORM & LOOKUP (When no ticket is loaded yet) */}
         {!loadingTicket && !ticket && (
-          <div className="bg-white rounded-3xl shadow-xl border border-amber-100 overflow-hidden animate-fade-in">
-            {/* Form Top Banner */}
-            <div className="bg-gradient-to-r from-[#6B0F1A] to-[#800000] p-6 text-white text-center relative">
-              <Heart size={20} className="mx-auto text-amber-300 fill-amber-300/40 mb-2" />
-              <h2 className="font-serif text-xl font-bold">Konfirmasi Kehadiran Tamu</h2>
-              <p className="text-xs text-amber-100/90 mt-1 max-w-sm mx-auto font-light">
-                Mohon lengkapi formulir di bawah ini untuk mendapatkan Barcode Masuk Digital Anda.
-              </p>
-            </div>
-
-            <form onSubmit={handleSaveRSVP} className="p-6 md:p-8 space-y-5">
-              {/* Nama Tamu */}
-              <div>
-                <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-1.5">
-                  Nama Tamu / Undangan <span className="text-rose-600">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Contoh: Bpk. Ahmad Hidayat & Istri"
-                  value={namaTamu}
-                  onChange={(e) => setNamaTamu(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-[#6B0F1A] focus:ring-2 focus:ring-[#6B0F1A]/10 outline-none text-sm transition-all bg-stone-50/50 focus:bg-white"
-                />
-              </div>
-
-              {/* Nomor WhatsApp */}
-              <div>
-                <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-1.5">
-                  Nomor WhatsApp <span className="text-stone-400 font-normal text-[11px]">(Opsional)</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
-                    <Phone size={16} />
-                  </div>
+          <div className="space-y-6">
+            
+            {/* Quick Ticket Lookup Box */}
+            <div className="bg-white p-5 rounded-2xl border border-gold-200 shadow-md">
+              <label className="text-xs font-bold uppercase tracking-wider text-stone-700 block mb-2">
+                Sudah Memiliki Kode Undangan Unik?
+              </label>
+              <form onSubmit={handleSearchCode} className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
                   <input
-                    type="tel"
-                    placeholder="081234567890"
-                    value={noWhatsapp}
-                    onChange={(e) => setNoWhatsapp(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-stone-200 focus:border-[#6B0F1A] focus:ring-2 focus:ring-[#6B0F1A]/10 outline-none text-sm transition-all bg-stone-50/50 focus:bg-white"
+                    type="text"
+                    placeholder="Ketik Kode Tiket (Contoh: FN-XXXXXX)"
+                    value={searchCodeInput}
+                    onChange={(e) => setSearchCodeInput(e.target.value.toUpperCase())}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-stone-200 font-mono text-xs uppercase outline-none focus:border-maroon"
                   />
                 </div>
+                <button
+                  type="submit"
+                  className="px-5 py-3 rounded-xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs uppercase tracking-wider shadow-md"
+                >
+                  Buka Tiket
+                </button>
+              </form>
+            </div>
+
+            {/* Self-registration Form */}
+            <div className="bg-white rounded-3xl shadow-xl border border-amber-100 overflow-hidden animate-fade-in">
+              <div className="bg-gradient-to-r from-[#6B0F1A] to-[#800000] p-6 text-white text-center relative">
+                <Heart size={20} className="mx-auto text-amber-300 fill-amber-300/40 mb-2" />
+                <h2 className="font-serif text-xl font-bold">Pendaftaran Buku Tamu &amp; RSVP</h2>
+                <p className="text-xs text-amber-100/90 mt-1 max-w-sm mx-auto font-light">
+                  Lengkapi data Anda di bawah ini untuk mendapatkan Barcode Masuk Digital Anda.
+                </p>
               </div>
 
-              {/* Pihak Mempelai Chips */}
-              <div>
-                <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-2">
-                  Tamu dari Pihak <span className="text-rose-600">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { key: 'Pihak Fikri', label: '🤵 Fikri' },
-                    { key: 'Pihak Nadya', label: '👰 Nadya' },
-                    { key: 'Rekan Bersama', label: '🤝 Bersama' }
-                  ].map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => setPihak(item.key as any)}
-                      className={`py-2.5 px-2 rounded-xl text-xs font-semibold border transition-all text-center ${
-                        pihak === item.key
-                          ? 'bg-[#6B0F1A] text-white border-[#6B0F1A] shadow-md'
-                          : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
+              <form onSubmit={handleSaveRSVP} className="p-6 md:p-8 space-y-5">
+                <div>
+                  <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-1.5">
+                    Nama Tamu / Keluarga <span className="text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Contoh: Keluarga Bpk. Ahmad Hidayat"
+                    value={namaTamu}
+                    onChange={(e) => setNamaTamu(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-[#6B0F1A] focus:ring-2 focus:ring-[#6B0F1A]/10 outline-none text-sm transition-all bg-stone-50/50 focus:bg-white"
+                  />
                 </div>
-              </div>
 
-              {/* Jumlah Tamu (Pax) Counter */}
-              <div>
-                <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-1.5">
-                  Jumlah Kehadiran (Pax) <span className="text-rose-600">*</span>
-                </label>
-                <div className="flex items-center space-x-3">
-                  <div className="inline-flex items-center border border-stone-200 rounded-xl bg-stone-50 p-1">
-                    <button
-                      type="button"
-                      onClick={() => setJumlahTamu((prev) => Math.max(1, prev - 1))}
-                      className="w-9 h-9 rounded-lg bg-white border border-stone-200 flex items-center justify-center text-stone-700 font-bold hover:bg-stone-100 transition-colors shadow-sm"
-                    >
-                      -
-                    </button>
-                    <span className="w-14 text-center font-bold text-stone-900 text-base">
-                      {jumlahTamu}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setJumlahTamu((prev) => Math.min(10, prev + 1))}
-                      className="w-9 h-9 rounded-lg bg-white border border-stone-200 flex items-center justify-center text-stone-700 font-bold hover:bg-stone-100 transition-colors shadow-sm"
-                    >
-                      +
-                    </button>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-1.5">
+                    Nomor WhatsApp <span className="text-stone-400 font-normal text-[11px]">(Opsional)</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-400">
+                      <Phone size={16} />
+                    </div>
+                    <input
+                      type="tel"
+                      placeholder="081234567890"
+                      value={noWhatsapp}
+                      onChange={(e) => setNoWhatsapp(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 rounded-xl border border-stone-200 focus:border-[#6B0F1A] focus:ring-2 focus:ring-[#6B0F1A]/10 outline-none text-sm transition-all bg-stone-50/50 focus:bg-white font-mono text-xs"
+                    />
                   </div>
-                  <span className="text-xs text-stone-500">Orang yang akan hadir bersama Anda</span>
                 </div>
-              </div>
 
-              {/* Ucapan & Doa */}
-              <div>
-                <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-1.5">
-                  Ucapan & Doa Restu <span className="text-stone-400 font-normal text-[11px]">(Opsional)</span>
-                </label>
-                <textarea
-                  rows={3}
-                  placeholder="Tuliskan ucapan selamat atau doa berkah untuk Fikri & Nadya..."
-                  value={ucapan}
-                  onChange={(e) => setUcapan(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-[#6B0F1A] focus:ring-2 focus:ring-[#6B0F1A]/10 outline-none text-sm transition-all bg-stone-50/50 focus:bg-white resize-none"
-                />
-              </div>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-2">
+                    Tamu dari Pihak <span className="text-rose-600">*</span>
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['Pihak Fikri', 'Pihak Nadya', 'Rekan Bersama'] as const).map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setPihak(item)}
+                        className={`py-2.5 px-2 text-xs font-semibold rounded-xl border transition-all text-center ${
+                          pihak === item
+                            ? 'bg-[#6B0F1A] text-white border-[#6B0F1A] shadow-md'
+                            : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#6B0F1A] via-[#800000] to-[#550B14] text-white font-bold text-sm tracking-wide shadow-lg hover:shadow-xl hover:opacity-95 active:scale-[0.99] transition-all disabled:opacity-50 flex items-center justify-center space-x-2"
-              >
-                {submitting ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <QrIcon size={18} className="text-amber-300" />
-                    <span>Simpan & Buat Barcode Masuk</span>
-                  </>
-                )}
-              </button>
-            </form>
+                <div>
+                  <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-2">
+                    Estimasi Jumlah Tamu yang Hadir
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    {[1, 2, 3, 4, 5].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setJumlahTamu(num)}
+                        className={`flex-1 py-2.5 text-xs font-bold rounded-xl border transition-all ${
+                          jumlahTamu === num
+                            ? 'bg-[#6B0F1A] text-amber-200 border-[#6B0F1A] shadow-md'
+                            : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
+                        }`}
+                      >
+                        {num} Pax
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wider font-bold text-stone-700 mb-1.5">
+                    Doa &amp; Ucapan untuk Kedua Mempelai
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Tuliskan ucapan selamat atau doa restu..."
+                    value={ucapan}
+                    onChange={(e) => setUcapan(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-stone-200 focus:border-[#6B0F1A] focus:ring-2 focus:ring-[#6B0F1A]/10 outline-none text-sm transition-all bg-stone-50/50 focus:bg-white resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-4 rounded-xl bg-gradient-to-r from-[#6B0F1A] to-[#800000] hover:from-[#800000] hover:to-[#550B14] text-amber-200 font-bold text-xs uppercase tracking-[0.2em] shadow-lg transition-all active:scale-[0.98] disabled:opacity-50 mt-2 flex items-center justify-center space-x-2"
+                >
+                  {submitting ? (
+                    <span>Menyimpan Data...</span>
+                  ) : (
+                    <>
+                      <QrIcon size={16} />
+                      <span>Dapatkan Barcode Tamu</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+
           </div>
         )}
 
-        {/* Footer */}
-        <div className="text-center mt-8 text-stone-400 text-xs">
-          <p className="font-serif italic">"Menuju Sakinah, Mawaddah, Warahmah"</p>
-          <p className="text-[10px] uppercase tracking-widest text-stone-400/80 mt-1 font-semibold">
-            Bismillah • Wedding of Fikri & Nadya
-          </p>
-        </div>
       </div>
     </div>
   );
 };
 
 export default GuestPass;
-

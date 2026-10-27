@@ -44,9 +44,13 @@ export interface BudgetItem {
 export interface Guest {
   id: string;
   nama_tamu: string;
+  nama_keluarga?: string;
   no_whatsapp?: string;
   pihak: 'Fikri' | 'Nadya';
   kategori: string;
+  kategori_tamu?: 'VIP' | 'Reguler';
+  jatah_tamu?: number;
+  ticket_code?: string;
   membawa_pasangan: boolean;
   jumlah_tambahan: number;
   total_pax: number;
@@ -108,11 +112,17 @@ export interface BukuTamu {
   id: string;
   ticket_code: string;
   nama_tamu: string;
+  nama_keluarga?: string;
   no_whatsapp?: string;
   pihak: 'Pihak Fikri' | 'Pihak Nadya' | 'Rekan Bersama' | string;
   jumlah_tamu: number;
+  jatah_tamu?: number;
+  jumlah_hadir_konfirmasi?: number;
+  kategori_tamu?: 'VIP' | 'Reguler';
   ucapan?: string;
   is_attended: boolean;
   attended_at?: string | null;
+  is_souvenir_given?: boolean;
+  souvenir_given_at?: string | null;
   created_at: string;
 }

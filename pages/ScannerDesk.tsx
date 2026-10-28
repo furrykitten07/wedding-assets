@@ -86,15 +86,27 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingRef = useRef(false);
 
-  // Result popup state inside modal
+  // Desk Sub-Navigation & Scanner Mode
+  const [activeDeskTab, setActiveDeskTab] = useState<'semua' | 'kehadiran' | 'souvenir'>('semua');
+  const [scannerMode, setScannerMode] = useState<'auto' | 'kehadiran' | 'souvenir'>('auto');
+
+  // Result popup states inside modal
   const [scanResult, setScanResult] = useState<{
     guest: BukuTamu;
     wasAlreadyAttended: boolean;
   } | null>(null);
 
-  // Preview Barcode Modal state
+  const [souvenirScanResult, setSouvenirScanResult] = useState<{
+    guest: BukuTamu;
+    wasAlreadyGiven: boolean;
+  } | null>(null);
+
+  // Preview Barcode Modal state (Supports Both Barcodes)
   const [previewGuest, setPreviewGuest] = useState<BukuTamu | null>(null);
   const [previewQrUrl, setPreviewQrUrl] = useState<string>('');
+  const [previewQrKehadiran, setPreviewQrKehadiran] = useState<string>('');
+  const [previewQrSouvenir, setPreviewQrSouvenir] = useState<string>('');
+  const [previewTab, setPreviewTab] = useState<'kehadiran' | 'souvenir'>('kehadiran');
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('');
@@ -162,19 +174,36 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     } else if (clean.includes('/')) {
       const parts = clean.split('/');
       const last = parts[parts.length - 1];
-      if (last.toUpperCase().startsWith('FN-')) {
+      if (last.toUpperCase().startsWith('FN-') || last.toUpperCase().startsWith('SV-')) {
         clean = last;
       }
+    }
+    if (clean.toUpperCase().startsWith('SV-')) {
+      clean = clean.substring(3);
     }
     return clean.toUpperCase();
   };
 
-  // Check-in Execution
+  // Helper to detect if the scanned input represents a Souvenir action
+  const isSouvenirAction = (raw: string): boolean => {
+    if (!raw) return false;
+    const upper = raw.toUpperCase();
+    return (
+      scannerMode === 'souvenir' ||
+      activeDeskTab === 'souvenir' ||
+      upper.includes('MODE=SOUVENIR') ||
+      upper.startsWith('SV-') ||
+      upper.includes('SV-FN-')
+    );
+  };
+
+  // Check-in & Souvenir Claim Execution
   const handleProcessScan = async (rawInput: string) => {
     const code = extractCode(rawInput);
     if (!code) return;
 
     isProcessingRef.current = true;
+    const isSouvenir = isSouvenirAction(rawInput);
 
     try {
       const { data, error } = await supabase
@@ -190,58 +219,116 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
       if (!target) {
         if (soundEnabled) playChime(false);
-        toast.error(`Kode "${code}" tidak ditemukan!`);
+        toast.error(`Kode "${code}" tidak ditemukan di database tamu!`);
         setTimeout(() => {
           isProcessingRef.current = false;
         }, 2000);
         return;
       }
 
-      if (target.is_attended) {
-        if (soundEnabled) playChime(false);
-        setScanResult({ guest: target, wasAlreadyAttended: true });
-        toast('Tamu ini sudah pernah check-in!', {
-          icon: '⚠️',
-          style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FCD34D' }
-        });
+      // -------------------------------------------------------------
+      // ACTION 1: SOUVENIR HANDOVER FLOW
+      // -------------------------------------------------------------
+      if (isSouvenir) {
+        setScanResult(null);
+
+        if (target.is_souvenir_given) {
+          if (soundEnabled) playChime(false);
+          setSouvenirScanResult({ guest: target, wasAlreadyGiven: true });
+          toast.error(`⚠️ Souvenir SUDAH PERNAH DIAMBIL sebelumnya!`, { duration: 5000 });
+        } else {
+          const nowIso = new Date().toISOString();
+          const { error: updateError } = await supabase
+            .from('buku_tamu')
+            .update({
+              is_souvenir_given: true,
+              souvenir_given_at: nowIso,
+              is_attended: true,
+              attended_at: target.attended_at || nowIso
+            })
+            .eq('id', target.id);
+
+          if (updateError && !updateError.message?.includes('schema cache')) {
+            throw updateError;
+          }
+
+          const updatedGuest: BukuTamu = {
+            ...target,
+            is_souvenir_given: true,
+            souvenir_given_at: nowIso,
+            is_attended: true,
+            attended_at: target.attended_at || nowIso
+          };
+
+          if (soundEnabled) playChime(true);
+          setSouvenirScanResult({ guest: updatedGuest, wasAlreadyGiven: false });
+          toast.success(`🎁 Souvenir Berhasil Diserahkan: ${target.nama_keluarga || target.nama_tamu}!`, {
+            duration: 5000
+          });
+
+          logActivity(
+            userEmail,
+            'update',
+            'Tamu',
+            `Klaim Barcode Souvenir: ${target.nama_keluarga || target.nama_tamu} (${target.ticket_code})`
+          );
+
+          setGuests((prev) =>
+            prev.map((g) => (g.id === target.id ? updatedGuest : g))
+          );
+        }
       } else {
-        const nowIso = new Date().toISOString();
-        const { error: updateError } = await supabase
-          .from('buku_tamu')
-          .update({
+        // -------------------------------------------------------------
+        // ACTION 2: ATTENDANCE CHECK-IN FLOW
+        // -------------------------------------------------------------
+        setSouvenirScanResult(null);
+
+        if (target.is_attended) {
+          if (soundEnabled) playChime(false);
+          setScanResult({ guest: target, wasAlreadyAttended: true });
+          toast('Tamu ini sudah pernah check-in sebelumnya!', {
+            icon: '⚠️',
+            style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FCD34D' }
+          });
+        } else {
+          const nowIso = new Date().toISOString();
+          const { error: updateError } = await supabase
+            .from('buku_tamu')
+            .update({
+              is_attended: true,
+              attended_at: nowIso
+            })
+            .eq('id', target.id);
+
+          if (updateError && !updateError.message?.includes('schema cache')) {
+            throw updateError;
+          }
+
+          const updatedGuest: BukuTamu = {
+            ...target,
             is_attended: true,
             attended_at: nowIso
-          })
-          .eq('id', target.id);
+          };
 
-        if (updateError && !updateError.message?.includes('schema cache')) {
-          throw updateError;
+          if (soundEnabled) playChime(true);
+          setScanResult({ guest: updatedGuest, wasAlreadyAttended: false });
+          toast.success(`Check-in Berhasil: ${target.nama_tamu} (${target.jumlah_tamu} Pax)!`);
+
+          logActivity(
+            userEmail,
+            'update',
+            'Tamu',
+            `Check-in Meja Resepsi: ${target.nama_tamu} (${target.jumlah_tamu} Pax - ${target.ticket_code})`
+          );
+
+          setGuests((prev) =>
+            prev.map((g) => (g.id === target.id ? updatedGuest : g))
+          );
         }
-
-        const updatedGuest: BukuTamu = {
-          ...target,
-          is_attended: true,
-          attended_at: nowIso
-        };
-
-        if (soundEnabled) playChime(true);
-        setScanResult({ guest: updatedGuest, wasAlreadyAttended: false });
-        toast.success(`Check-in Berhasil: ${target.nama_tamu} (${target.jumlah_tamu} Pax)!`);
-
-        logActivity(
-          userEmail,
-          'update',
-          'Tamu',
-          `Check-in Meja Resepsi: ${target.nama_tamu} (${target.jumlah_tamu} Pax - ${target.ticket_code})`
-        );
-
-        setGuests((prev) =>
-          prev.map((g) => (g.id === target.id ? updatedGuest : g))
-        );
       }
     } catch (err: any) {
       console.error('Scan error:', err);
-      toast.error('Gagal memproses check-in: ' + err.message);
+      toast.error('Gagal memproses barcode: ' + err.message);
     } finally {
       setTimeout(() => {
         isProcessingRef.current = false;
@@ -338,17 +425,27 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     }
   };
 
-  // Open Preview Modal
+  // Open Preview Modal (Generates Both Barcodes)
   const handleOpenPreview = async (guest: BukuTamu) => {
     try {
       setPreviewGuest(guest);
+      setPreviewTab('kehadiran');
       const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(guest.ticket_code)}`;
-      const url = await QRCode.toDataURL(checkinUrl, {
-        width: 320,
+      const urlKehadiran = await QRCode.toDataURL(checkinUrl, {
+        width: 380,
         margin: 2,
         color: { dark: '#6B0F1A', light: '#FFFFFF' }
       });
-      setPreviewQrUrl(url);
+      setPreviewQrKehadiran(urlKehadiran);
+      setPreviewQrUrl(urlKehadiran);
+
+      const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(guest.ticket_code)}&mode=souvenir`;
+      const urlSouvenir = await QRCode.toDataURL(souvenirUrl, {
+        width: 380,
+        margin: 2,
+        color: { dark: '#14532D', light: '#FFFFFF' }
+      });
+      setPreviewQrSouvenir(urlSouvenir);
     } catch (err) {
       toast.error('Gagal membuat preview barcode');
     }
@@ -516,23 +613,104 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
           </p>
         </div>
 
-        {/* Primary Action Button: Open Scanner Modal */}
+        {/* Primary Action Buttons: Double Scanner System */}
         <div className="flex flex-wrap items-center gap-2.5">
           <button
-            onClick={() => setIsScannerModalOpen(true)}
-            className="px-5 py-3 rounded-2xl bg-gradient-to-r from-maroon via-maroon-800 to-[#550B14] hover:opacity-95 text-gold border border-gold-400 font-bold text-xs shadow-lg shadow-maroon/20 transition-all flex items-center space-x-2 active:scale-95 cursor-pointer"
+            onClick={() => {
+              setScannerMode('kehadiran');
+              setIsScannerModalOpen(true);
+            }}
+            className="px-4 py-3 rounded-2xl bg-gradient-to-r from-maroon via-maroon-800 to-[#550B14] hover:opacity-95 text-gold border border-gold-400 font-bold text-xs shadow-lg shadow-maroon/20 transition-all flex items-center space-x-2 active:scale-95 cursor-pointer"
           >
-            <Camera size={18} />
-            <span className="tracking-wide uppercase">Buka Scanner Kamera</span>
+            <Camera size={17} />
+            <span className="tracking-wide uppercase">Scan Kehadiran</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setScannerMode('souvenir');
+              setIsScannerModalOpen(true);
+            }}
+            className="px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 hover:opacity-95 text-maroon font-black text-xs shadow-lg shadow-amber-500/20 border border-amber-300 transition-all flex items-center space-x-2 active:scale-95 cursor-pointer"
+          >
+            <Gift size={17} />
+            <span className="tracking-wide uppercase">Scan Souvenir</span>
           </button>
 
           <button
             onClick={fetchGuests}
-            className="p-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
+            className="p-3 rounded-2xl bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors cursor-pointer"
             title="Refresh Data Tamu"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
+        </div>
+      </div>
+
+      {/* SUB-MENU TABS: SEMUA TAMU | MEJA KEHADIRAN | MEJA SOUVENIR */}
+      <div className="bg-white p-2.5 rounded-2xl border border-gold-200/60 shadow-sm flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center space-x-1.5 overflow-x-auto w-full sm:w-auto">
+          <button
+            onClick={() => {
+              setActiveDeskTab('semua');
+              setFilterStatus('all');
+              setFilterSouvenir('all');
+            }}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeDeskTab === 'semua'
+                ? 'bg-maroon text-gold shadow-md'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-50'
+            }`}
+          >
+            <Users size={15} />
+            <span>Semua Tamu ({totalRegistered})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDeskTab('kehadiran');
+              setFilterStatus('all');
+              setFilterSouvenir('all');
+            }}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeDeskTab === 'kehadiran'
+                ? 'bg-maroon text-gold shadow-md'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-50'
+            }`}
+          >
+            <UserCheck size={15} />
+            <span>Meja Kehadiran ({totalAttended}/{totalRegistered})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveDeskTab('souvenir');
+              setFilterStatus('all');
+              setFilterSouvenir('all');
+            }}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center space-x-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeDeskTab === 'souvenir'
+                ? 'bg-gradient-to-r from-amber-600 to-amber-800 text-white shadow-md ring-1 ring-amber-400'
+                : 'text-amber-900 hover:bg-amber-50'
+            }`}
+          >
+            <Gift size={15} />
+            <span>Meja Souvenir ({totalSouvenirsGiven}/{totalRegistered})</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeDeskTab === 'souvenir' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
+            }`}>
+              {totalRegistered > 0 ? Math.round((totalSouvenirsGiven / totalRegistered) * 100) : 0}%
+            </span>
+          </button>
+        </div>
+
+        <div className="text-xs text-stone-500 hidden md:flex items-center space-x-2">
+          <Sparkles size={14} className="text-gold" />
+          <span>
+            {activeDeskTab === 'souvenir'
+              ? 'Mode Meja Souvenir: Fokus verifikasi dan serah terima paket souvenir'
+              : 'Mode Meja Resepsi: Pencatatan kehadiran dan data buku tamu'}
+          </span>
         </div>
       </div>
 
@@ -567,11 +745,19 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
         {/* Souvenir Diserahkan */}
         <div className="bg-white p-5 rounded-2xl border border-gold-200/70 shadow-sm">
-          <span className="text-[11px] font-bold text-maroon uppercase tracking-wider block">Souvenir Diserahkan</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-maroon uppercase tracking-wider block">Souvenir Diserahkan</span>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              {totalRegistered > 0 ? Math.round((totalSouvenirsGiven / totalRegistered) * 100) : 0}%
+            </span>
+          </div>
           <div className="flex items-baseline space-x-2 mt-2">
             <span className="text-2xl font-bold text-maroon">{totalSouvenirsGiven}</span>
             <span className="text-xs text-gray-500 font-medium">/ {totalRegistered} Undangan</span>
           </div>
+          <p className="text-[11px] text-stone-500 mt-1">
+            <strong>{totalRegistered - totalSouvenirsGiven}</strong> Undangan Belum Mengambil
+          </p>
           <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden mt-2">
             <div
               className="bg-maroon h-full rounded-full transition-all duration-700"
@@ -581,11 +767,19 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         </div>
       </div>
 
-      {/* 3. QUICK MANUAL CHECK-IN BAR */}
+      {/* 3. QUICK MANUAL CODE SCAN / INPUT BAR */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
         <div className="flex items-center space-x-2.5 text-gray-800 text-xs font-bold uppercase tracking-wider">
-          <QrCode size={18} className="text-maroon" />
-          <span>Check-in Cepat Manual (Ketik Kode Tiket)</span>
+          {activeDeskTab === 'souvenir' ? (
+            <Gift size={18} className="text-amber-700" />
+          ) : (
+            <QrCode size={18} className="text-maroon" />
+          )}
+          <span>
+            {activeDeskTab === 'souvenir'
+              ? 'Klaim Cepat Souvenir (Ketik Kode Tiket / Souvenir)'
+              : 'Check-in Cepat Manual (Ketik Kode Tiket / Souvenir)'}
+          </span>
         </div>
 
         <form
@@ -600,17 +794,21 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         >
           <input
             type="text"
-            placeholder="Contoh: FN-A8K9Z2"
+            placeholder={activeDeskTab === 'souvenir' ? "Contoh: SV-FN-A8K9Z2 atau FN-A8K9Z2" : "Contoh: FN-A8K9Z2"}
             value={manualCode}
             onChange={(e) => setManualCode(e.target.value.toUpperCase())}
-            className="px-4 py-2.5 text-xs border border-gray-200 rounded-xl focus:border-maroon outline-none font-mono uppercase w-full sm:w-60 shadow-inner"
+            className="px-4 py-2.5 text-xs border border-gray-200 rounded-xl focus:border-maroon outline-none font-mono uppercase w-full sm:w-64 shadow-inner"
           />
           <button
             type="submit"
-            className="px-5 py-2.5 bg-maroon hover:bg-maroon-800 text-gold text-xs font-bold rounded-xl transition-all shadow-sm flex items-center space-x-1.5 shrink-0"
+            className={`px-5 py-2.5 text-xs font-bold rounded-xl transition-all shadow-sm flex items-center space-x-1.5 shrink-0 cursor-pointer ${
+              activeDeskTab === 'souvenir'
+                ? 'bg-amber-500 hover:bg-amber-600 text-maroon'
+                : 'bg-maroon hover:bg-maroon-800 text-gold'
+            }`}
           >
-            <Send size={13} />
-            <span>Check-in</span>
+            {activeDeskTab === 'souvenir' ? <Gift size={14} /> : <Send size={13} />}
+            <span>{activeDeskTab === 'souvenir' ? 'Klaim Souvenir' : 'Check-in'}</span>
           </button>
         </form>
       </div>
@@ -642,25 +840,34 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               />
             </div>
 
-            {/* Status Filter Chips */}
-            <div className="flex items-center space-x-1 bg-gray-100 p-1 rounded-xl text-xs font-bold">
+            {/* Status & Souvenir Filter Chips */}
+            <div className="flex flex-wrap items-center gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold">
               {[
-                { key: 'all', label: `Semua (${totalRegistered})` },
-                { key: 'attended', label: `Hadir (${totalAttended})` },
-                { key: 'pending', label: `Belum (${totalPending})` }
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setFilterStatus(tab.key as any)}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${
-                    filterStatus === tab.key
-                      ? 'bg-maroon text-gold shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+                { key: 'all', label: `Semua (${totalRegistered})`, action: () => { setFilterStatus('all'); setFilterSouvenir('all'); } },
+                { key: 'attended', label: `Hadir (${totalAttended})`, action: () => { setFilterStatus('attended'); setFilterSouvenir('all'); } },
+                { key: 'pending', label: `Belum Hadir (${totalPending})`, action: () => { setFilterStatus('pending'); setFilterSouvenir('all'); } },
+                { key: 'souvenir_given', label: `✓ Souvenir Diambil (${totalSouvenirsGiven})`, action: () => { setFilterSouvenir('given'); setFilterStatus('all'); } },
+                { key: 'souvenir_pending', label: `🎁 Belum Ambil Souvenir (${totalRegistered - totalSouvenirsGiven})`, action: () => { setFilterSouvenir('pending'); setFilterStatus('all'); } }
+              ].map((tab) => {
+                const isActive = (tab.key === 'all' && filterStatus === 'all' && filterSouvenir === 'all') ||
+                                 (tab.key === 'attended' && filterStatus === 'attended') ||
+                                 (tab.key === 'pending' && filterStatus === 'pending') ||
+                                 (tab.key === 'souvenir_given' && filterSouvenir === 'given') ||
+                                 (tab.key === 'souvenir_pending' && filterSouvenir === 'pending');
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={tab.action}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-maroon text-gold shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Kategori Selector (VIP / Reguler) */}
@@ -965,6 +1172,37 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               </div>
 
               <div className="flex items-center space-x-2">
+                {/* Scanner Mode Toggle */}
+                <div className="flex items-center bg-stone-800 p-1 rounded-xl border border-stone-700 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setScannerMode('auto')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      scannerMode === 'auto' ? 'bg-gold text-maroon shadow font-black' : 'text-stone-300 hover:text-white'
+                    }`}
+                  >
+                    Auto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScannerMode('kehadiran')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      scannerMode === 'kehadiran' ? 'bg-maroon text-gold shadow border border-gold/40' : 'text-stone-300 hover:text-white'
+                    }`}
+                  >
+                    Kehadiran
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScannerMode('souvenir')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      scannerMode === 'souvenir' ? 'bg-amber-500 text-maroon shadow font-black' : 'text-stone-300 hover:text-white'
+                    }`}
+                  >
+                    Souvenir
+                  </button>
+                </div>
+
                 {/* Camera Switcher Dropdown */}
                 {cameras.length > 1 && (
                   <select
@@ -1090,9 +1328,75 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
                       <button
                         onClick={() => setScanResult(null)}
-                        className="px-4 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-md shrink-0 uppercase tracking-wider"
+                        className="px-4 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-md shrink-0 uppercase tracking-wider cursor-pointer"
                       >
                         Lanjutkan
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Souvenir Scan Result Popup Overlay inside Modal */}
+              {souvenirScanResult && (
+                <div className="absolute inset-x-4 bottom-4 z-30 bg-white/95 backdrop-blur-md rounded-2xl p-5 shadow-2xl border-2 border-amber-300 animate-fade-in text-gray-900">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start space-x-3.5">
+                      <div
+                        className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                          souvenirScanResult.wasAlreadyGiven
+                            ? 'bg-rose-100 text-rose-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {souvenirScanResult.wasAlreadyGiven ? (
+                          <AlertCircle size={28} />
+                        ) : (
+                          <Gift size={28} />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-[10px] uppercase font-black tracking-wider block ${
+                            souvenirScanResult.wasAlreadyGiven ? 'text-rose-700' : 'text-emerald-700'
+                          }`}>
+                            {souvenirScanResult.wasAlreadyGiven
+                              ? '⚠️ PERINGATAN: SOUVENIR SUDAH PERNAH DIAMBIL!'
+                              : '🎁 SOUVENIR BERHASIL DISERAHKAN (1 PAKET)'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300">
+                            {souvenirScanResult.guest.kategori_tamu === 'VIP' ? '★ VIP' : 'Reguler'}
+                          </span>
+                        </div>
+                        <h4 className="font-serif text-xl font-bold text-gray-900 mt-0.5">
+                          {souvenirScanResult.guest.nama_keluarga || souvenirScanResult.guest.nama_tamu}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs">
+                          <span className="font-mono bg-stone-100 px-2 py-0.5 rounded text-amber-900 font-bold">
+                            SV-{souvenirScanResult.guest.ticket_code}
+                          </span>
+                          <span className="bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded font-bold">
+                            {souvenirScanResult.guest.pihak}
+                          </span>
+                          <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-bold">
+                            {souvenirScanResult.guest.jumlah_hadir_konfirmasi || souvenirScanResult.guest.jumlah_tamu} Orang
+                          </span>
+                          {souvenirScanResult.wasAlreadyGiven && souvenirScanResult.guest.souvenir_given_at && (
+                            <span className="bg-rose-50 text-rose-800 border border-rose-200 px-2 py-0.5 rounded font-bold">
+                              Diambil: {new Date(souvenirScanResult.guest.souvenir_given_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-200">
+                      <button
+                        type="button"
+                        onClick={() => setSouvenirScanResult(null)}
+                        className="px-4 py-2.5 rounded-xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs shadow-md transition-all cursor-pointer"
+                      >
+                        Lanjut Scan Berikutnya
                       </button>
                     </div>
                   </div>
@@ -1145,7 +1449,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
       )}
 
       {/* ============================================================== */}
-      {/* 6. MODAL PREVIEW BARCODE TAMU                                 */}
+      {/* 6. MODAL PREVIEW BARCODE TAMU (DUAL BARCODE PREVIEW)          */}
       {/* ============================================================== */}
       {previewGuest && (
         <Modal
@@ -1153,23 +1457,60 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
           onClose={() => setPreviewGuest(null)}
           title="Tiket & Barcode Tamu"
         >
-          <div className="text-center p-4 space-y-4">
-            <div className="p-4 bg-white rounded-2xl border border-stone-200 inline-block shadow-inner">
-              {previewQrUrl && (
-                <img
-                  src={previewQrUrl}
-                  alt={`QR ${previewGuest.ticket_code}`}
-                  className="w-60 h-60 mx-auto object-contain"
-                />
-              )}
+          <div className="text-center p-2 sm:p-4 space-y-4">
+            {/* 2 Tabs Switcher */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-stone-100 rounded-xl border border-stone-200">
+              <button
+                type="button"
+                onClick={() => setPreviewTab('kehadiran')}
+                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                  previewTab === 'kehadiran'
+                    ? 'bg-maroon text-gold shadow-sm'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <QrCode size={14} />
+                <span>1. Barcode Kehadiran</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPreviewTab('souvenir')}
+                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                  previewTab === 'souvenir'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <Gift size={14} />
+                <span>2. Barcode Souvenir</span>
+              </button>
+            </div>
+
+            <div className={`p-4 bg-white rounded-2xl border-2 inline-block shadow-inner ${
+              previewTab === 'souvenir' ? 'border-amber-400' : 'border-gold-300'
+            }`}>
+              <img
+                src={previewTab === 'souvenir' ? (previewQrSouvenir || previewQrUrl) : (previewQrKehadiran || previewQrUrl)}
+                alt={`QR ${previewGuest.ticket_code}`}
+                className="w-64 h-64 mx-auto object-contain"
+              />
             </div>
 
             <div>
-              <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Kode Tiket</p>
-              <p className="font-mono text-xl font-bold text-maroon">{previewGuest.ticket_code}</p>
-              <h3 className="font-serif text-lg font-bold text-gray-900 mt-1">{previewGuest.nama_tamu}</h3>
+              <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">
+                {previewTab === 'souvenir' ? 'Kode Souvenir' : 'Kode Tiket'}
+              </p>
+              <p className={`font-mono text-xl font-bold ${
+                previewTab === 'souvenir' ? 'text-amber-800' : 'text-maroon'
+              }`}>
+                {previewTab === 'souvenir' ? `SV-${previewGuest.ticket_code}` : previewGuest.ticket_code}
+              </p>
+              <h3 className="font-serif text-lg font-bold text-gray-900 mt-1">
+                {previewGuest.nama_keluarga || previewGuest.nama_tamu}
+              </h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                {previewGuest.pihak} • {previewGuest.jumlah_tamu} Pax
+                {previewGuest.pihak} • {previewGuest.jumlah_tamu} Pax • {previewGuest.kategori_tamu === 'VIP' ? '★ VIP' : 'Reguler'}
               </p>
             </div>
 
@@ -1177,14 +1518,14 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               <button
                 onClick={() => {
                   window.open(
-                    `${window.location.origin}/#/checkin?code=${previewGuest.ticket_code}`,
+                    `${window.location.origin}/#/checkin?code=${previewGuest.ticket_code}${previewTab === 'souvenir' ? '&mode=souvenir' : ''}`,
                     '_blank'
                   );
                 }}
-                className="flex-1 flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-sm"
+                className="flex-1 flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-sm cursor-pointer"
               >
                 <CheckCircle2 size={14} />
-                <span>Validasi / Check-in</span>
+                <span>{previewTab === 'souvenir' ? 'Klaim Souvenir' : 'Validasi Check-in'}</span>
               </button>
 
               <button
@@ -1194,15 +1535,15 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                     '_blank'
                   );
                 }}
-                className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-gold-50 text-gold-900 border border-gold-300 font-bold text-xs hover:bg-gold-100"
+                className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-gold-50 text-gold-900 border border-gold-300 font-bold text-xs hover:bg-gold-100 cursor-pointer"
               >
                 <ExternalLink size={14} />
-                <span>Tiket Tamu</span>
+                <span>Buka Pass Tamu</span>
               </button>
 
               <button
                 onClick={() => window.print()}
-                className="flex items-center justify-center space-x-1.5 py-2.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs"
+                className="flex items-center justify-center space-x-1.5 py-2.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs cursor-pointer"
               >
                 <Printer size={14} />
                 <span>Cetak</span>

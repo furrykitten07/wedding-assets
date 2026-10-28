@@ -115,9 +115,12 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
     wasAlreadyAttended: boolean;
   } | null>(null);
 
-  // Modal View QR Code
+  // Modal View QR Code (Supports Dual Barcode)
   const [previewGuest, setPreviewGuest] = useState<BukuTamu | null>(null);
   const [previewQrUrl, setPreviewQrUrl] = useState<string>('');
+  const [previewQrKehadiran, setPreviewQrKehadiran] = useState<string>('');
+  const [previewQrSouvenir, setPreviewQrSouvenir] = useState<string>('');
+  const [previewTab, setPreviewTab] = useState<'kehadiran' | 'souvenir'>('kehadiran');
 
   // Copy state
   const [copiedLink, setCopiedLink] = useState(false);
@@ -254,9 +257,11 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
     }
   }, [isScanning, selectedCameraId]);
 
-  // Check-in Execution Logic
+  // Check-in Execution Logic (Handles both Kehadiran & Souvenir)
   const handleProcessCheckin = async (rawCode: string) => {
     let cleanCode = rawCode.trim();
+    const isSouvenirScan = rawCode.includes('mode=souvenir') || rawCode.toUpperCase().startsWith('SV-');
+
     // Support URL parsing from camera scanner (e.g. https://.../#/checkin?code=FN-XXXXXX)
     if (cleanCode.includes('code=')) {
       const match = cleanCode.match(/[?&]code=([A-Za-z0-9_-]+)/i);
@@ -266,9 +271,12 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
     } else if (cleanCode.includes('/')) {
       const parts = cleanCode.split('/');
       const last = parts[parts.length - 1];
-      if (last.toUpperCase().startsWith('FN-')) {
+      if (last.toUpperCase().startsWith('FN-') || last.toUpperCase().startsWith('SV-')) {
         cleanCode = last;
       }
+    }
+    if (cleanCode.toUpperCase().startsWith('SV-')) {
+      cleanCode = cleanCode.substring(3);
     }
     cleanCode = cleanCode.toUpperCase();
     if (!cleanCode) return;
@@ -294,48 +302,94 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
         return;
       }
 
-      if (target.is_attended) {
-        playChime(false, soundEnabled);
-        setScannedResult({ guest: target, wasAlreadyAttended: true });
-        toast('Tamu ini sudah pernah check-in sebelumnya.', {
-          icon: '⚠️',
-          style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FCD34D' }
-        });
+      if (isSouvenirScan) {
+        // Souvenir Scan
+        if (target.is_souvenir_given) {
+          playChime(false, soundEnabled);
+          setScannedResult({ guest: target, wasAlreadyAttended: true });
+          toast.error(`⚠️ Souvenir SUDAH PERNAH DIAMBIL sebelumnya!`, { duration: 4000 });
+        } else {
+          const nowIso = new Date().toISOString();
+          const { error: updateError } = await supabase
+            .from('buku_tamu')
+            .update({
+              is_souvenir_given: true,
+              souvenir_given_at: nowIso,
+              is_attended: true,
+              attended_at: target.attended_at || nowIso
+            })
+            .eq('id', target.id);
+
+          if (updateError) throw updateError;
+
+          const updatedGuest: BukuTamu = {
+            ...target,
+            is_souvenir_given: true,
+            souvenir_given_at: nowIso,
+            is_attended: true,
+            attended_at: target.attended_at || nowIso
+          };
+
+          playChime(true, soundEnabled);
+          setScannedResult({ guest: updatedGuest, wasAlreadyAttended: false });
+          toast.success(`🎁 1 Paket Souvenir Berhasil Diserahkan: ${target.nama_keluarga || target.nama_tamu}!`);
+
+          logActivity(
+            userEmail,
+            'update',
+            'Tamu',
+            `Klaim Souvenir Barcode: ${target.nama_keluarga || target.nama_tamu} (${target.ticket_code})`
+          );
+
+          setGuests((prev) =>
+            prev.map((g) => (g.id === target.id ? updatedGuest : g))
+          );
+        }
       } else {
-        // Mark as attended
-        const nowIso = new Date().toISOString();
-        const { error: updateError } = await supabase
-          .from('buku_tamu')
-          .update({
+        // Attendance Check-in
+        if (target.is_attended) {
+          playChime(false, soundEnabled);
+          setScannedResult({ guest: target, wasAlreadyAttended: true });
+          toast('Tamu ini sudah pernah check-in sebelumnya.', {
+            icon: '⚠️',
+            style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FCD34D' }
+          });
+        } else {
+          // Mark as attended
+          const nowIso = new Date().toISOString();
+          const { error: updateError } = await supabase
+            .from('buku_tamu')
+            .update({
+              is_attended: true,
+              attended_at: nowIso
+            })
+            .eq('id', target.id);
+
+          if (updateError) throw updateError;
+
+          const updatedGuest: BukuTamu = {
+            ...target,
             is_attended: true,
             attended_at: nowIso
-          })
-          .eq('id', target.id);
+          };
 
-        if (updateError) throw updateError;
+          playChime(true, soundEnabled);
+          setScannedResult({ guest: updatedGuest, wasAlreadyAttended: false });
+          toast.success(`Check-in berhasil: ${target.nama_tamu} (${target.jumlah_tamu} Pax)`);
 
-        const updatedGuest: BukuTamu = {
-          ...target,
-          is_attended: true,
-          attended_at: nowIso
-        };
+          // Log activity
+          logActivity(
+            userEmail,
+            'update',
+            'Tamu',
+            `Check-in Tamu: ${target.nama_tamu} (${target.jumlah_tamu} Pax - ${target.ticket_code})`
+          );
 
-        playChime(true, soundEnabled);
-        setScannedResult({ guest: updatedGuest, wasAlreadyAttended: false });
-        toast.success(`Check-in berhasil: ${target.nama_tamu} (${target.jumlah_tamu} Pax)`);
-
-        // Log activity
-        logActivity(
-          userEmail,
-          'update',
-          'Tamu',
-          `Check-in Tamu: ${target.nama_tamu} (${target.jumlah_tamu} Pax - ${target.ticket_code})`
-        );
-
-        // Update local state immediately
-        setGuests((prev) =>
-          prev.map((g) => (g.id === target.id ? updatedGuest : g))
-        );
+          // Update local state immediately
+          setGuests((prev) =>
+            prev.map((g) => (g.id === target.id ? updatedGuest : g))
+          );
+        }
       }
     } catch (err: any) {
       console.error('Check-in error:', err);
@@ -409,18 +463,27 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
     }
   };
 
-  // Open QR Preview Modal
+  // Open QR Preview Modal (Generates Both Barcodes)
   const handleOpenPreview = async (guest: BukuTamu) => {
     try {
       setPreviewGuest(guest);
-      // Generate QR Code with Full Live Check-in Validation URL
+      setPreviewTab('kehadiran');
       const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(guest.ticket_code)}`;
-      const url = await QRCode.toDataURL(checkinUrl, {
-        width: 320,
+      const urlKehadiran = await QRCode.toDataURL(checkinUrl, {
+        width: 360,
         margin: 2,
         color: { dark: '#6B0F1A', light: '#FFFFFF' }
       });
-      setPreviewQrUrl(url);
+      setPreviewQrKehadiran(urlKehadiran);
+      setPreviewQrUrl(urlKehadiran);
+
+      const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(guest.ticket_code)}&mode=souvenir`;
+      const urlSouvenir = await QRCode.toDataURL(souvenirUrl, {
+        width: 360,
+        margin: 2,
+        color: { dark: '#14532D', light: '#FFFFFF' }
+      });
+      setPreviewQrSouvenir(urlSouvenir);
     } catch (err) {
       toast.error('Gagal membuat preview barcode');
     }
@@ -1326,30 +1389,65 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
         </Modal>
       )}
 
-      {/* MODAL 2: PREVIEW BARCODE & DIGITAL PASS */}
+      {/* MODAL 2: PREVIEW BARCODE & DIGITAL PASS (DUAL BARCODE SYSTEM) */}
       {previewGuest && (
         <Modal
           isOpen={Boolean(previewGuest)}
           onClose={() => setPreviewGuest(null)}
           title="Tiket & Barcode Tamu"
         >
-          <div className="text-center p-4 space-y-4">
-            <div className="p-4 bg-white rounded-2xl border border-stone-200 inline-block shadow-inner">
-              {previewQrUrl && (
-                <img
-                  src={previewQrUrl}
-                  alt={`QR ${previewGuest.ticket_code}`}
-                  className="w-56 h-56 mx-auto object-contain"
-                />
-              )}
+          <div className="text-center p-2 sm:p-4 space-y-4">
+            {/* 2 Tabs Switcher */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-stone-100 rounded-xl border border-stone-200">
+              <button
+                type="button"
+                onClick={() => setPreviewTab('kehadiran')}
+                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                  previewTab === 'kehadiran'
+                    ? 'bg-maroon text-gold shadow-sm'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <QrCode size={14} />
+                <span>1. Barcode Kehadiran</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPreviewTab('souvenir')}
+                className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center space-x-1.5 ${
+                  previewTab === 'souvenir'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <Gift size={14} />
+                <span>2. Barcode Souvenir</span>
+              </button>
+            </div>
+
+            <div className={`p-4 bg-white rounded-2xl border-2 inline-block shadow-inner ${
+              previewTab === 'souvenir' ? 'border-amber-400' : 'border-gold-300'
+            }`}>
+              <img
+                src={previewTab === 'souvenir' ? (previewQrSouvenir || previewQrUrl) : (previewQrKehadiran || previewQrUrl)}
+                alt={`QR ${previewGuest.ticket_code}`}
+                className="w-60 h-60 mx-auto object-contain"
+              />
             </div>
 
             <div>
-              <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Kode Tiket</p>
-              <p className="font-mono text-xl font-bold text-maroon">{previewGuest.ticket_code}</p>
+              <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">
+                {previewTab === 'souvenir' ? 'Kode Souvenir' : 'Kode Tiket'}
+              </p>
+              <p className={`font-mono text-xl font-bold ${
+                previewTab === 'souvenir' ? 'text-amber-800' : 'text-maroon'
+              }`}>
+                {previewTab === 'souvenir' ? `SV-${previewGuest.ticket_code}` : previewGuest.ticket_code}
+              </p>
               <h3 className="font-serif text-lg font-bold text-gray-900 mt-1">{previewGuest.nama_tamu}</h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                {previewGuest.pihak} • {previewGuest.jumlah_tamu} Pax
+                {previewGuest.pihak} • {previewGuest.jumlah_tamu} Pax • {previewGuest.kategori_tamu === 'VIP' ? '★ VIP' : 'Reguler'}
               </p>
             </div>
 
@@ -1357,14 +1455,14 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
               <button
                 onClick={() => {
                   window.open(
-                    `${window.location.origin}/#/checkin?code=${previewGuest.ticket_code}`,
+                    `${window.location.origin}/#/checkin?code=${previewGuest.ticket_code}${previewTab === 'souvenir' ? '&mode=souvenir' : ''}`,
                     '_blank'
                   );
                 }}
-                className="flex-1 flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-sm"
+                className="flex-1 flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-sm cursor-pointer"
               >
                 <CheckCircle2 size={14} />
-                <span>Validasi / Check-in</span>
+                <span>{previewTab === 'souvenir' ? 'Klaim Souvenir' : 'Validasi / Check-in'}</span>
               </button>
 
               <button
@@ -1374,7 +1472,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                     '_blank'
                   );
                 }}
-                className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-gold-50 text-gold-900 border border-gold-300 font-bold text-xs hover:bg-gold-100"
+                className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-gold-50 text-gold-900 border border-gold-300 font-bold text-xs hover:bg-gold-100 cursor-pointer"
               >
                 <ExternalLink size={14} />
                 <span>Tiket Tamu</span>
@@ -1382,7 +1480,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
               <button
                 onClick={() => window.print()}
-                className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs"
+                className="flex items-center justify-center space-x-1.5 py-2.5 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs cursor-pointer"
               >
                 <Printer size={14} />
                 <span>Cetak</span>

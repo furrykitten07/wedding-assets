@@ -63,11 +63,16 @@ const CheckinValidation: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const rawCode = searchParams.get('code') || '';
+  const modeParam = searchParams.get('mode') || '';
+  const isSouvenirMode = modeParam.toLowerCase() === 'souvenir' || rawCode.toUpperCase().startsWith('SV-');
 
   const [session, setSession] = useState<any>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 
-  const [ticketCode, setTicketCode] = useState(rawCode.trim().toUpperCase());
+  const initialCode = rawCode.trim().toUpperCase().startsWith('SV-') 
+    ? rawCode.trim().toUpperCase().substring(3) 
+    : rawCode.trim().toUpperCase();
+  const [ticketCode, setTicketCode] = useState(initialCode);
   const [guest, setGuest] = useState<BukuTamu | null>(null);
   const [loading, setLoading] = useState(false);
   const [processed, setProcessed] = useState(false);
@@ -105,7 +110,10 @@ const CheckinValidation: React.FC = () => {
       setErrorNotFound(false);
       setGuest(null);
 
-      const cleanCode = codeToVerify.trim().toUpperCase();
+      let cleanCode = codeToVerify.trim().toUpperCase();
+      if (cleanCode.startsWith('SV-')) {
+        cleanCode = cleanCode.substring(3);
+      }
 
       const { data, error } = await supabase
         .from('buku_tamu')
@@ -126,14 +134,48 @@ const CheckinValidation: React.FC = () => {
       }
 
       setGuest(target);
+      const currentSess = activeSession !== undefined ? activeSession : session;
 
-      // Check attendance state
+      // Handle Souvenir Mode
+      if (isSouvenirMode && currentSess?.user) {
+        if (target.is_souvenir_given) {
+          setWasAlreadyAttended(true);
+          setProcessed(true);
+          playChime(false);
+          toast.error('⚠️ Souvenir untuk tamu ini sudah pernah diambil sebelumnya!');
+        } else {
+          const nowIso = new Date().toISOString();
+          await supabase
+            .from('buku_tamu')
+            .update({
+              is_souvenir_given: true,
+              souvenir_given_at: nowIso,
+              is_attended: true,
+              attended_at: target.attended_at || nowIso
+            })
+            .eq('id', target.id);
+
+          const updated: BukuTamu = {
+            ...target,
+            is_souvenir_given: true,
+            souvenir_given_at: nowIso,
+            is_attended: true,
+            attended_at: target.attended_at || nowIso
+          };
+          setGuest(updated);
+          setProcessed(true);
+          playChime(true);
+          toast.success(`🎁 1 Paket Souvenir Berhasil Diserahkan: ${target.nama_keluarga || target.nama_tamu}!`);
+        }
+        return;
+      }
+
+      // Normal Attendance Check
       if (target.is_attended) {
         setWasAlreadyAttended(true);
         setProcessed(true);
         playChime(false);
       } else {
-        const currentSess = activeSession !== undefined ? activeSession : session;
         if (currentSess?.user) {
           // Authorized officer logged in: Confirm check-in immediately!
           setWasAlreadyAttended(false);

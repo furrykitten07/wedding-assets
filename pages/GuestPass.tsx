@@ -21,7 +21,9 @@ import {
   Award,
   Gift,
   Search,
-  Edit3
+  Edit3,
+  X,
+  Maximize2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
@@ -46,6 +48,10 @@ const GuestPass: React.FC = () => {
   // Ticket State
   const [ticket, setTicket] = useState<BukuTamu | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [qrKehadiranUrl, setQrKehadiranUrl] = useState<string>('');
+  const [qrSouvenirUrl, setQrSouvenirUrl] = useState<string>('');
+  const [activeBarcodeTab, setActiveBarcodeTab] = useState<'kehadiran' | 'souvenir'>('kehadiran');
+  const [isZoomModalOpen, setIsZoomModalOpen] = useState(false);
   const [loadingTicket, setLoadingTicket] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -86,17 +92,30 @@ const GuestPass: React.FC = () => {
         const isAlreadyConfirmed = Boolean((found as any).is_confirmed || found.attended_at || found.jumlah_hadir_konfirmasi);
         setIsEditingConfirmation(!isAlreadyConfirmed);
 
-        // Generate QR Code with Full Check-in Validation URL
+        // 1. Generate QR Code Kehadiran (High Resolution)
         const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(found.ticket_code)}`;
-        const qrUrl = await QRCode.toDataURL(checkinUrl, {
-          width: 340,
-          margin: 2,
+        const qrUrl1 = await QRCode.toDataURL(checkinUrl, {
+          width: 520,
+          margin: 1.5,
           color: {
             dark: '#6B0F1A', // Royal Maroon
             light: '#FFFFFF'
           }
         });
-        setQrDataUrl(qrUrl);
+        setQrKehadiranUrl(qrUrl1);
+        setQrDataUrl(qrUrl1);
+
+        // 2. Generate QR Code Pengambilan Souvenir (High Resolution)
+        const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(found.ticket_code)}&mode=souvenir`;
+        const qrUrl2 = await QRCode.toDataURL(souvenirUrl, {
+          width: 520,
+          margin: 1.5,
+          color: {
+            dark: '#14532D', // Deep Royal Emerald
+            light: '#FFFFFF'
+          }
+        });
+        setQrSouvenirUrl(qrUrl2);
 
         if (!prevAttendedRef.current && found.is_attended) {
           setJustAttended(true);
@@ -118,12 +137,14 @@ const GuestPass: React.FC = () => {
     } else {
       setTicket(null);
       setQrDataUrl('');
+      setQrKehadiranUrl('');
+      setQrSouvenirUrl('');
     }
   }, [ticketCodeParam]);
 
-  // Polling check attendance if ticket is open and not yet attended
+  // Polling check attendance & souvenir status if ticket is open
   useEffect(() => {
-    if (!ticket || ticket.is_attended) return;
+    if (!ticket) return;
 
     const interval = setInterval(async () => {
       try {
@@ -133,13 +154,21 @@ const GuestPass: React.FC = () => {
           .eq('ticket_code', ticket.ticket_code);
 
         const updated = Array.isArray(data) ? data[0] : data;
-        if (updated && updated.is_attended) {
-          setTicket(updated);
-          setJustAttended(true);
-          prevAttendedRef.current = true;
-          toast.success('🎉 Kehadiran Anda telah berhasil dikonfirmasi oleh penerima tamu!', {
-            duration: 6000
-          });
+        if (updated) {
+          if (!ticket.is_attended && updated.is_attended) {
+            setTicket(updated);
+            setJustAttended(true);
+            prevAttendedRef.current = true;
+            toast.success('🎉 Kehadiran Anda telah berhasil dikonfirmasi oleh penerima tamu!', {
+              duration: 6000
+            });
+          }
+          if (!ticket.is_souvenir_given && updated.is_souvenir_given) {
+            setTicket(updated);
+            toast.success('🎁 1 Paket Souvenir Anda telah berhasil diambil. Terima kasih!', {
+              duration: 6000
+            });
+          }
         }
       } catch (err) {
         // silent polling error
@@ -241,9 +270,10 @@ const GuestPass: React.FC = () => {
 
   const handleCopyCode = () => {
     if (!ticket) return;
-    navigator.clipboard.writeText(ticket.ticket_code);
+    const codeToCopy = activeBarcodeTab === 'souvenir' ? `SV-${ticket.ticket_code}` : ticket.ticket_code;
+    navigator.clipboard.writeText(codeToCopy);
     setCopiedCode(true);
-    toast.success('Kode tiket disalin!');
+    toast.success(`Kode ${activeBarcodeTab === 'souvenir' ? 'Souvenir' : 'Tiket'} disalin!`);
     setTimeout(() => setCopiedCode(false), 2500);
   };
 
@@ -255,6 +285,8 @@ const GuestPass: React.FC = () => {
     setUcapan('');
     setTicket(null);
     setQrDataUrl('');
+    setQrKehadiranUrl('');
+    setQrSouvenirUrl('');
     setJustAttended(false);
     setIsEditingConfirmation(false);
     prevAttendedRef.current = false;
@@ -449,12 +481,65 @@ const GuestPass: React.FC = () => {
           </div>
         )}
 
-        {/* VIEW 1B: TICKET PASS CARD WITH QR CODE (Ketika sudah konfirmasi) */}
+        {/* VIEW 1B: TICKET PASS CARD WITH 2-BARCODE SYSTEM (KEHADIRAN & SOUVENIR) */}
         {!loadingTicket && ticket && !isEditingConfirmation && (
-          <div className="space-y-5 animate-fade-in">
+          <div className="space-y-4 animate-fade-in">
             
-            {/* Live Attended Celebration Notification */}
-            {ticket.is_attended && (
+            {/* 2-MENU BARCODE SWITCHER TABS WITH VIBRANT HIGHLIGHT */}
+            <div className="bg-stone-100 p-2 rounded-2xl border-2 border-amber-200/90 shadow-sm grid grid-cols-2 gap-2.5">
+              {/* Menu 1: Barcode Kehadiran */}
+              <button
+                type="button"
+                onClick={() => setActiveBarcodeTab('kehadiran')}
+                className={`p-3.5 rounded-xl font-bold transition-all flex flex-col items-center justify-center space-y-1 relative cursor-pointer ${
+                  activeBarcodeTab === 'kehadiran'
+                    ? 'bg-gradient-to-r from-[#6B0F1A] via-[#800000] to-[#550B14] text-gold shadow-lg ring-2 ring-gold-400 scale-[1.02]'
+                    : 'bg-white text-stone-600 hover:bg-stone-50 hover:text-maroon border border-stone-200'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5">
+                  <QrIcon size={17} />
+                  <span className="text-xs uppercase tracking-wider font-black">1. Kehadiran</span>
+                </div>
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold ${
+                  ticket.is_attended 
+                    ? 'bg-emerald-500 text-white' 
+                    : activeBarcodeTab === 'kehadiran' 
+                      ? 'bg-amber-400 text-maroon font-black' 
+                      : 'bg-stone-200 text-stone-600'
+                }`}>
+                  {ticket.is_attended ? '✓ Sudah Hadir' : '● Check-in Tamu'}
+                </span>
+              </button>
+
+              {/* Menu 2: Barcode Souvenir */}
+              <button
+                type="button"
+                onClick={() => setActiveBarcodeTab('souvenir')}
+                className={`p-3.5 rounded-xl font-bold transition-all flex flex-col items-center justify-center space-y-1 relative cursor-pointer ${
+                  activeBarcodeTab === 'souvenir'
+                    ? 'bg-gradient-to-r from-amber-600 via-amber-700 to-amber-900 text-white shadow-lg ring-2 ring-amber-400 scale-[1.02]'
+                    : 'bg-white text-stone-600 hover:bg-stone-50 hover:text-amber-800 border border-stone-200'
+                }`}
+              >
+                <div className="flex items-center space-x-1.5">
+                  <Gift size={17} />
+                  <span className="text-xs uppercase tracking-wider font-black">2. Souvenir</span>
+                </div>
+                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold ${
+                  ticket.is_souvenir_given 
+                    ? 'bg-emerald-500 text-white' 
+                    : activeBarcodeTab === 'souvenir' 
+                      ? 'bg-amber-300 text-amber-950 font-black' 
+                      : 'bg-stone-200 text-stone-600'
+                }`}>
+                  {ticket.is_souvenir_given ? '✓ Sudah Diambil' : '🎁 Klaim Souvenir'}
+                </span>
+              </button>
+            </div>
+
+            {/* Live Attended Celebration Notification (Only on Kehadiran Tab) */}
+            {activeBarcodeTab === 'kehadiran' && ticket.is_attended && (
               <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-5 rounded-2xl shadow-lg border border-emerald-400/30 text-center relative overflow-hidden animate-bounce-short">
                 <div className="absolute -right-4 -bottom-4 text-white/10">
                   <CheckCircle2 size={120} />
@@ -465,7 +550,7 @@ const GuestPass: React.FC = () => {
                   </div>
                   <h3 className="font-serif font-bold text-xl tracking-tight">Kehadiran Dikonfirmasi!</h3>
                   <p className="text-emerald-50 text-xs mt-1 leading-relaxed">
-                    Alhamdulillah, barcode Anda telah berhasil diverifikasi oleh penerima tamu. Selamat menikmati momen bahagia bersama kami.
+                    Alhamdulillah, barcode kehadiran Anda telah berhasil diverifikasi oleh penerima tamu. Selamat menikmati momen bahagia bersama kami.
                   </p>
                   {ticket.attended_at && (
                     <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 bg-black/20 rounded-full text-[11px] font-medium text-emerald-100">
@@ -477,15 +562,52 @@ const GuestPass: React.FC = () => {
               </div>
             )}
 
-            {/* Waiting Check-in Notification */}
-            {!ticket.is_attended && (
+            {/* Waiting Check-in Notification (Only on Kehadiran Tab) */}
+            {activeBarcodeTab === 'kehadiran' && !ticket.is_attended && (
               <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-4 text-center">
                 <div className="flex items-center justify-center space-x-2 text-amber-900 font-semibold text-xs tracking-wide">
                   <span className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
-                  <span>Siap Ditunjukkan di Meja Penerima Tamu</span>
+                  <span>Tunjukkan Barcode Ini di Meja Penerima Tamu</span>
                 </div>
                 <p className="text-[11px] text-stone-500 mt-1">
-                  Halaman ini akan otomatis terupdate saat barcode Anda discan di lokasi acara.
+                  Halaman ini akan otomatis terupdate saat barcode kehadiran Anda discan oleh petugas.
+                </p>
+              </div>
+            )}
+
+            {/* Souvenir Claimed Notification (Only on Souvenir Tab) */}
+            {activeBarcodeTab === 'souvenir' && ticket.is_souvenir_given && (
+              <div className="bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-800 text-white p-5 rounded-2xl shadow-lg border border-emerald-400/30 text-center relative overflow-hidden animate-bounce-short">
+                <div className="absolute -right-4 -bottom-4 text-white/10">
+                  <Gift size={120} />
+                </div>
+                <div className="relative z-10">
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 backdrop-blur-sm">
+                    <CheckCircle2 size={28} className="text-white" />
+                  </div>
+                  <h3 className="font-serif font-bold text-xl tracking-tight">Souvenir Sudah Diterima!</h3>
+                  <p className="text-emerald-50 text-xs mt-1 leading-relaxed">
+                    Terima kasih telah hadir dan merayakan hari bahagia kami. Semoga berkenan dengan souvenir kenang-kenangan ini.
+                  </p>
+                  {ticket.souvenir_given_at && (
+                    <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 bg-black/20 rounded-full text-[11px] font-medium text-emerald-100">
+                      <Clock size={12} />
+                      <span>Diserahkan: {new Date(ticket.souvenir_given_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Waiting Souvenir Notification (Only on Souvenir Tab) */}
+            {activeBarcodeTab === 'souvenir' && !ticket.is_souvenir_given && (
+              <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-2xl p-4 text-center shadow-md">
+                <div className="flex items-center justify-center space-x-2 font-bold text-xs tracking-wide">
+                  <Gift size={16} className="text-amber-200 animate-bounce" />
+                  <span>Kupon 1 Paket Souvenir Siap Ditukarkan</span>
+                </div>
+                <p className="text-[11px] text-amber-100 mt-1">
+                  Tunjukkan barcode souvenir ini kepada petugas meja souvenir untuk mengambil paket souvenir keluarga Anda.
                 </p>
               </div>
             )}
@@ -493,12 +615,16 @@ const GuestPass: React.FC = () => {
             {/* THE WEDDING PASS CARD */}
             <div className="bg-white rounded-3xl overflow-hidden shadow-2xl border-2 border-amber-200/80 relative">
               {/* Header Card Pattern */}
-              <div className="bg-gradient-to-r from-[#6B0F1A] via-[#800000] to-[#550B14] p-6 text-white text-center relative">
+              <div className={`p-6 text-white text-center relative ${
+                activeBarcodeTab === 'souvenir'
+                  ? 'bg-gradient-to-r from-amber-700 via-amber-800 to-stone-900'
+                  : 'bg-gradient-to-r from-[#6B0F1A] via-[#800000] to-[#550B14]'
+              }`}>
                 <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:12px_12px]" />
                 <div className="relative z-10">
                   <div className="flex items-center justify-center space-x-2 mb-2">
                     <span className="inline-block px-3 py-1 rounded-full bg-white/15 text-amber-200 text-[10px] font-bold tracking-[0.2em] uppercase backdrop-blur-sm border border-white/10">
-                      Official Wedding Pass
+                      {activeBarcodeTab === 'souvenir' ? 'Kupon Souvenir Tamu' : 'Official Wedding Pass'}
                     </span>
                     {ticket.kategori_tamu === 'VIP' && (
                       <span className="inline-flex items-center space-x-1 px-3 py-1 rounded-full bg-gradient-to-r from-amber-400 to-amber-200 text-stone-900 text-[10px] font-black uppercase tracking-wider shadow-sm">
@@ -507,34 +633,48 @@ const GuestPass: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <h2 className="font-serif text-2xl font-bold tracking-tight">Fikri &amp; Nadya</h2>
-                  <p className="text-[11px] text-amber-100/90 font-light mt-0.5">Walimatul Ursy</p>
+                  <h2 className="font-serif text-2xl font-bold tracking-tight">
+                    {activeBarcodeTab === 'souvenir' ? 'Klaim Souvenir Resepsi' : 'Fikri & Nadya'}
+                  </h2>
+                  <p className="text-[11px] text-amber-100/90 font-light mt-0.5">
+                    {activeBarcodeTab === 'souvenir' ? 'Walimatul Ursy • 1 Paket per Undangan' : 'Walimatul Ursy'}
+                  </p>
                 </div>
               </div>
 
-              {/* QR Code Container */}
-              <div className="p-6 md:p-8 text-center bg-gradient-to-b from-white to-[#fdfaf7]">
-                <div className="inline-block p-4 bg-white rounded-2xl shadow-inner border border-stone-200/80 mb-4">
-                  {qrDataUrl ? (
-                    <img 
-                      src={qrDataUrl} 
-                      alt={`QR Code ${ticket.ticket_code}`} 
-                      className="w-56 h-56 md:w-64 md:h-64 object-contain mx-auto"
-                    />
-                  ) : (
-                    <div className="w-56 h-56 flex items-center justify-center bg-stone-100 rounded-xl text-stone-400">
-                      <QrIcon size={48} />
-                    </div>
-                  )}
+              {/* QR Code Container (EXTRA LARGE DISPLAY FOR FAST SCANNING) */}
+              <div className="p-5 sm:p-8 text-center bg-gradient-to-b from-white to-[#fdfaf7]">
+                <div 
+                  onClick={() => setIsZoomModalOpen(true)}
+                  className={`inline-block p-4 sm:p-6 bg-white rounded-3xl shadow-xl border-4 mb-4 transition-transform hover:scale-[1.02] cursor-pointer group relative ${
+                    activeBarcodeTab === 'souvenir' ? 'border-amber-400' : 'border-gold-300'
+                  }`}
+                  title="Ketuk untuk memperbesar barcode ke ukuran penuh"
+                >
+                  <img 
+                    src={activeBarcodeTab === 'souvenir' ? (qrSouvenirUrl || qrDataUrl) : (qrKehadiranUrl || qrDataUrl)} 
+                    alt={`QR Code ${ticket.ticket_code}`} 
+                    className="w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 max-w-full object-contain mx-auto"
+                  />
+                  <div className="mt-2 text-[11px] text-stone-500 group-hover:text-maroon font-semibold flex items-center justify-center space-x-1">
+                    <Maximize2 size={13} className="text-gold" />
+                    <span>Ketuk untuk Tampilan Penuh Layar (Zoom)</span>
+                  </div>
                 </div>
 
                 {/* Ticket Code Pill */}
                 <div className="inline-flex items-center space-x-2 px-4 py-2 bg-stone-100 rounded-full border border-stone-300/80 text-stone-800">
-                  <span className="text-xs uppercase text-stone-500 font-semibold tracking-wider">Kode Tiket:</span>
-                  <span className="font-mono font-bold text-sm text-[#6B0F1A] tracking-wider">{ticket.ticket_code}</span>
+                  <span className="text-xs uppercase text-stone-500 font-semibold tracking-wider">
+                    {activeBarcodeTab === 'souvenir' ? 'Kode Souvenir:' : 'Kode Tiket:'}
+                  </span>
+                  <span className={`font-mono font-bold text-sm tracking-wider ${
+                    activeBarcodeTab === 'souvenir' ? 'text-amber-800' : 'text-[#6B0F1A]'
+                  }`}>
+                    {activeBarcodeTab === 'souvenir' ? `SV-${ticket.ticket_code}` : ticket.ticket_code}
+                  </span>
                   <button 
                     onClick={handleCopyCode} 
-                    className="p-1 hover:text-[#6B0F1A] transition-colors"
+                    className="p-1 hover:text-[#6B0F1A] transition-colors cursor-pointer"
                     title="Salin Kode"
                   >
                     {copiedCode ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
@@ -544,12 +684,12 @@ const GuestPass: React.FC = () => {
                 {/* Download QR Button (Highlight) */}
                 <div className="pt-3">
                   <a
-                    href={qrDataUrl}
-                    download={`QR-Undangan-${ticket.ticket_code}.png`}
+                    href={activeBarcodeTab === 'souvenir' ? (qrSouvenirUrl || qrDataUrl) : (qrKehadiranUrl || qrDataUrl)}
+                    download={`QR-${activeBarcodeTab === 'souvenir' ? 'Souvenir' : 'Kehadiran'}-${ticket.ticket_code}.png`}
                     className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-all shadow-sm active:scale-95"
                   >
                     <Download size={15} className="text-amber-700" />
-                    <span>Download / Simpan Gambar QR Code</span>
+                    <span>Download Barcode {activeBarcodeTab === 'souvenir' ? 'Souvenir' : 'Kehadiran'} (PNG)</span>
                   </a>
                 </div>
 
@@ -820,6 +960,52 @@ const GuestPass: React.FC = () => {
         )}
 
       </div>
+
+      {/* FULLSCREEN LIGHTBOX FOR INSTANT CAMERA SCANNING */}
+      {isZoomModalOpen && ticket && (
+        <div 
+          onClick={() => setIsZoomModalOpen(false)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4 animate-fade-in text-white cursor-pointer"
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white text-stone-900 rounded-3xl p-6 sm:p-8 max-w-sm sm:max-w-md w-full text-center shadow-2xl space-y-4 relative border-2 border-amber-300"
+          >
+            <button
+              onClick={() => setIsZoomModalOpen(false)}
+              className="absolute top-3 right-3 p-2 rounded-full bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors"
+              title="Tutup"
+            >
+              <X size={20} />
+            </button>
+
+            <div>
+              <span className="text-[10px] uppercase font-bold tracking-widest text-amber-700 block">
+                {activeBarcodeTab === 'souvenir' ? 'Kupon Pengambilan Souvenir' : 'Barcode Kehadiran Tamu'}
+              </span>
+              <h3 className="font-serif text-xl font-bold text-[#6B0F1A] mt-0.5">
+                {ticket.nama_keluarga || ticket.nama_tamu}
+              </h3>
+            </div>
+
+            <div className="bg-white p-3 rounded-2xl border-2 border-stone-200 shadow-inner inline-block">
+              <img
+                src={activeBarcodeTab === 'souvenir' ? (qrSouvenirUrl || qrDataUrl) : (qrKehadiranUrl || qrDataUrl)}
+                alt="Barcode Zoom"
+                className="w-72 h-72 sm:w-80 sm:h-80 object-contain mx-auto"
+              />
+            </div>
+
+            <div className="font-mono font-bold text-base text-[#6B0F1A] bg-stone-100 py-1.5 px-4 rounded-full inline-block">
+              {activeBarcodeTab === 'souvenir' ? `SV-${ticket.ticket_code}` : ticket.ticket_code}
+            </div>
+
+            <p className="text-xs text-stone-500 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+              💡 <strong>Tips:</strong> Tingkatkan kecerahan layar HP ke maksimal agar mudah dibaca oleh sensor kamera penerima tamu.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

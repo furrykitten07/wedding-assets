@@ -56,14 +56,28 @@ const Ideas: React.FC<{ userEmail: string }> = ({ userEmail }) => {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false });
 
-      let filteredData = data || [];
+      let filteredData = (data || []).map((item: any) => {
+        let cats = item.categories;
+        if (typeof cats === 'string') {
+          try { cats = JSON.parse(cats); } catch { cats = []; }
+        }
+        let imgs = item.image_urls;
+        if (typeof imgs === 'string') {
+          try { imgs = JSON.parse(imgs); } catch { imgs = []; }
+        }
+        return {
+          ...item,
+          categories: Array.isArray(cats) ? cats : [],
+          image_urls: Array.isArray(imgs) ? imgs : []
+        };
+      });
       
       if (searchTerm) {
         const s = searchTerm.toLowerCase();
         filteredData = filteredData.filter(item => 
-          item.title.toLowerCase().includes(s) || 
-          item.content.toLowerCase().includes(s) || 
-          item.categories.some(cat => cat.toLowerCase().includes(s))
+          (item.title || '').toLowerCase().includes(s) || 
+          (item.content || '').toLowerCase().includes(s) || 
+          (item.categories || []).some((cat: any) => typeof cat === 'string' && cat.toLowerCase().includes(s))
         );
       }
 
@@ -343,7 +357,9 @@ const Ideas: React.FC<{ userEmail: string }> = ({ userEmail }) => {
             Belum ada ide tercatat atau tidak ditemukan. Yuk, tulis inspirasi kita!
           </div>
         ) : ideas.map(idea => {
-          const isOwner = idea.created_by.toLowerCase() === userEmail.toLowerCase();
+          const isOwner = (idea.created_by || '').toLowerCase() === (userEmail || '').toLowerCase();
+          const authorInitial = (idea.created_by || 'U').charAt(0).toUpperCase();
+          const authorName = (idea.created_by || 'User').split('@')[0];
           
           return (
             <div key={idea.id} className="bg-white p-8 rounded-[2.5rem] border-2 border-gold-100 shadow-xl hover:shadow-2xl hover:-translate-y-2 transition-all group flex flex-col h-full relative overflow-hidden">
@@ -422,11 +438,11 @@ const Ideas: React.FC<{ userEmail: string }> = ({ userEmail }) => {
               <div className="pt-6 border-t border-gold-100 flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs border shadow-sm ${isOwner ? 'bg-maroon text-gold border-gold' : 'bg-gold text-maroon border-maroon'}`}>
-                          {idea.created_by.charAt(0).toUpperCase()}
+                          {authorInitial}
                       </div>
                       <div>
                           <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest leading-none mb-1">From By</p>
-                          <p className="text-xs font-black text-maroon uppercase">{idea.created_by.split('@')[0]}</p>
+                          <p className="text-xs font-black text-maroon uppercase">{authorName}</p>
                       </div>
                   </div>
                   <div className="text-right">
@@ -573,8 +589,8 @@ const Ideas: React.FC<{ userEmail: string }> = ({ userEmail }) => {
                     ) : comments.length === 0 ? (
                         <div className="text-center py-10 italic text-gray-400 bg-gray-50 rounded-2xl">Belum ada komentar. Yuk mulai diskusi!</div>
                     ) : comments.map((c) => {
-                        const isMe = c.user_email.toLowerCase() === userEmail.toLowerCase();
-                        const userName = c.user_email.split('@')[0].toUpperCase();
+                        const isMe = (c.user_email || '').toLowerCase() === (userEmail || '').toLowerCase();
+                        const userName = (c.user_email || 'User').split('@')[0].toUpperCase();
                         
                         return (
                             <div key={c.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
@@ -654,10 +670,10 @@ const Ideas: React.FC<{ userEmail: string }> = ({ userEmail }) => {
             <div className="flex items-center justify-between pt-6 border-t border-gold-100">
                 <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 bg-maroon text-gold rounded-full flex items-center justify-center font-black border border-gold shadow-md">
-                        {previewingIdea.created_by.charAt(0).toUpperCase()}
+                        {(previewingIdea.created_by || 'U').charAt(0).toUpperCase()}
                     </div>
                     <div>
-                        <p className="text-xs font-black text-maroon uppercase">{previewingIdea.created_by.split('@')[0]}</p>
+                        <p className="text-xs font-black text-maroon uppercase">{(previewingIdea.created_by || 'User').split('@')[0]}</p>
                         <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Penulis Ide</p>
                     </div>
                 </div>

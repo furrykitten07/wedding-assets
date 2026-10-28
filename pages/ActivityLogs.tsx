@@ -72,8 +72,8 @@ const ActivityLogs: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {loading ? (<tr><td colSpan={5} className="py-20 text-center text-gray-400">Loading log...</td></tr>) : logs.map(log => (
                 <tr key={log.id} className="hover:bg-gray-50/80 transition-colors">
-                  <td className="px-6 py-4 text-[10px] font-mono font-bold text-gray-400 uppercase">{new Date(log.created_at).toLocaleString('id-ID')}</td>
-                  <td className="px-6 py-4 font-bold text-maroon-900 text-sm uppercase">{log.user_email.split('@')[0]}</td>
+                  <td className="px-6 py-4 text-[10px] font-mono font-bold text-gray-400 uppercase">{log.created_at ? new Date(log.created_at).toLocaleString('id-ID') : '-'}</td>
+                  <td className="px-6 py-4 font-bold text-maroon-900 text-sm uppercase">{(log.user_email || 'User').split('@')[0]}</td>
                   <td className="px-6 py-4"><span className="text-xs font-bold text-gold-700 uppercase tracking-wider">{log.modul}</span></td>
                   <td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest shadow-sm ${getAksiColor(log.aksi)}`}>{log.aksi}</span></td>
                   <td className="px-6 py-4 text-sm text-gray-600 font-medium">{log.detail}</td>

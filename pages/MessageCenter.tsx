@@ -11,8 +11,9 @@ const MessageCenter: React.FC<{ userEmail: string }> = ({ userEmail }) => {
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  const partnerEmail = userEmail.includes('fikri') ? 'nadya@wedding.com' : 'fikri@wedding.com';
-  const partnerName = partnerEmail.split('@')[0].toUpperCase();
+  const safeEmail = userEmail || '';
+  const partnerEmail = safeEmail.toLowerCase().includes('fikri') ? 'nadya@wedding.com' : 'fikri@wedding.com';
+  const partnerName = (partnerEmail.split('@')[0] || 'Pasangan').toUpperCase();
 
   const fetchMessages = async () => {
     const { data } = await supabase.from('messages').select('*').order('created_at', { ascending: true });

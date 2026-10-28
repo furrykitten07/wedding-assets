@@ -139,7 +139,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         if (devices && devices.length > 0) {
           setCameras(devices);
           const backCam = devices.find((d) =>
-            d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('rear')
+            (d.label || '').toLowerCase().includes('back') || (d.label || '').toLowerCase().includes('rear')
           );
           setSelectedCameraId(backCam ? backCam.id : devices[0].id);
         }
@@ -469,7 +469,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     const matchesSearch =
       !search ||
       guestName.includes(search) ||
-      g.ticket_code.toLowerCase().includes(search) ||
+      (g.ticket_code || '').toLowerCase().includes(search) ||
       (g.no_whatsapp && g.no_whatsapp.includes(search));
 
     const matchesStatus =
@@ -516,7 +516,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
             Scanner Kehadiran Tamu
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Akun Petugas: <span className="font-bold text-maroon">{userEmail.split('@')[0].toUpperCase()}</span> • Buka scanner kamera atau cari nama di tabel
+            Akun Petugas: <span className="font-bold text-maroon">{(userEmail || 'Petugas').split('@')[0].toUpperCase()}</span> • Buka scanner kamera atau cari nama di tabel
           </p>
         </div>
 

@@ -155,10 +155,11 @@ const Dashboard: React.FC = () => {
       const ideasList = ideasRes?.data || [];
       const approvedCount = ideasList.filter((i: any) => i.is_approved).length;
 
-      // Messages
+      // Messages (filter out bridge messages from guest pass)
       const msgList = messagesRes?.data || [];
-      const unreadCount = msgList.filter((m: any) => m.receiver_email === userEmail && !m.is_read).length;
-      const latestMsg = msgList.length > 0 ? msgList[0] : null;
+      const partnerMsgList = msgList.filter((m: any) => m.receiver_email !== 'guest_pass_data@wedding.system');
+      const unreadCount = partnerMsgList.filter((m: any) => m.receiver_email === userEmail && !m.is_read).length;
+      const latestMsg = partnerMsgList.length > 0 ? partnerMsgList[0] : null;
 
       setStats({
         totalLamaran: lamaranItems.length,
@@ -666,7 +667,7 @@ const Dashboard: React.FC = () => {
             </div>
 
             <div className="space-y-3.5">
-              {stats.recentLogs.map((log: any) => {
+              {(stats.recentLogs || []).map((log: any) => {
                 const userInitial = log.user_email ? log.user_email.charAt(0).toUpperCase() : 'U';
                 const userName = log.user_email ? log.user_email.split('@')[0] : 'User';
                 return (

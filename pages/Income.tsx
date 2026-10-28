@@ -162,7 +162,7 @@ const IncomeList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
               <tr key={item.id} className="hover:bg-emerald-50/30 transition-colors">
                 <td className="px-6 py-6">
                   <div className="font-black text-maroon-900 text-lg">{item.nama}</div>
-                  <div className="text-[10px] text-gold-700 font-black uppercase tracking-[0.2em]">{item.created_by.split('@')[0]}</div>
+                  <div className="text-[10px] text-gold-700 font-black uppercase tracking-[0.2em]">{(item.created_by || 'User').split('@')[0]}</div>
                 </td>
                 <td className="px-6 py-6 text-center font-mono text-2xl font-black text-emerald-700">
                   {formatRupiah(item.nominal)}

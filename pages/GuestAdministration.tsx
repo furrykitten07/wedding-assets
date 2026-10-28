@@ -520,7 +520,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
     const matchesSearch =
       !search ||
       guestName.includes(search) ||
-      g.ticket_code.toLowerCase().includes(search) ||
+      (g.ticket_code || '').toLowerCase().includes(search) ||
       (g.no_whatsapp && g.no_whatsapp.includes(search));
 
     const matchesStatus =

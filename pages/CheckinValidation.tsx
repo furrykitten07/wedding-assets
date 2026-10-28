@@ -329,7 +329,7 @@ const CheckinValidation: React.FC = () => {
           {isAuthorized && (
             <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Petugas Aktif: {session.user?.name || session.user?.email?.split('@')[0]}</span>
+              <span>Petugas Aktif: {session.user?.name || (session.user?.email ? session.user.email.split('@')[0] : 'Petugas')}</span>
             </div>
           )}
         </div>

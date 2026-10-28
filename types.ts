@@ -54,6 +54,8 @@ export interface Guest {
   membawa_pasangan: boolean;
   jumlah_tambahan: number;
   total_pax: number;
+  is_attended?: boolean;
+  is_souvenir_given?: boolean;
   created_at: string;
 }
 

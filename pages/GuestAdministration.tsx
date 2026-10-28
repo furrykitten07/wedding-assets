@@ -327,6 +327,16 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
       const { error } = await supabase.from('buku_tamu').delete().eq('id', guest.id);
       if (error) throw error;
 
+      // Sinkronisasi hapus dari tabel tamu (Daftar Tamu)
+      try {
+        await supabase.from('tamu').delete().eq('nama_tamu', guest.nama_tamu);
+        if (guest.nama_keluarga && guest.nama_keluarga !== guest.nama_tamu) {
+          await supabase.from('tamu').delete().eq('nama_tamu', guest.nama_keluarga);
+        }
+      } catch (syncErr) {
+        console.warn("Sync delete to tamu err:", syncErr);
+      }
+
       setGuests((prev) => prev.filter((g) => g.id !== guest.id));
       toast.success('Data tamu berhasil dihapus');
       logActivity(userEmail, 'delete', 'Tamu', `Hapus Buku Tamu: ${guest.nama_tamu}`);
@@ -391,6 +401,24 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
       const { error } = await supabase.from('buku_tamu').insert([payload]);
       if (error && !error.message?.includes('schema cache')) throw error;
+
+      // Sinkronisasi buat data di tabel tamu (Daftar Tamu)
+      try {
+        const tamuPihak = formData.pihak.includes('Nadya') ? 'Nadya' : 'Fikri';
+        const tamuKategori = formData.kategori_tamu === 'VIP' ? 'Keluarga Besar' : 'Teman Kerja';
+        const membawaPasangan = paxQuota > 1;
+        const jumlahTambahan = paxQuota > 1 ? paxQuota - 1 : 0;
+        await supabase.from('tamu').insert([{
+          nama_tamu: formData.nama_keluarga.trim(),
+          no_whatsapp: formData.no_whatsapp.trim() || null,
+          pihak: tamuPihak,
+          kategori: tamuKategori,
+          membawa_pasangan: membawaPasangan,
+          jumlah_tambahan: jumlahTambahan
+        }]);
+      } catch (syncErr) {
+        console.warn("Sync insert to tamu err:", syncErr);
+      }
 
       toast.success(`Tamu ${formData.nama_keluarga} berhasil didaftarkan! Link undangan siap.`);
       logActivity(userEmail, 'create', 'Tamu', `Daftarkan Tamu: ${formData.nama_keluarga} (${formData.kategori_tamu} - ${newTicketCode})`);

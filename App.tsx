@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast';
 import { supabase } from './supabase';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -17,11 +17,13 @@ import GuestPass from './pages/GuestPass';
 import GuestAdministration from './pages/GuestAdministration';
 import CheckinValidation from './pages/CheckinValidation';
 import ScannerDesk from './pages/ScannerDesk';
+import SessionTimeoutManager from './components/SessionTimeoutManager';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // Inisialisasi session & listener auth
   useEffect(() => {
     let subscription: any = null;
     const initSession = async () => {
@@ -38,20 +40,49 @@ const App: React.FC = () => {
     initSession();
 
     try {
-      const authRes = supabase.auth.onAuthStateChange((_event: any, session: any) => {
-        setSession(session);
+      const authRes = supabase.auth.onAuthStateChange((_event: any, newSession: any) => {
+        setSession(newSession);
       });
       subscription = authRes.data?.subscription;
     } catch (e) {
       console.warn("Auth listener error:", e);
     }
 
+    // Listener custom event untuk sinkronisasi seketika antar layer auth lokal & cloud
+    const handleCustomAuthChange = (e: any) => {
+      setSession(e.detail?.session || null);
+    };
+    window.addEventListener('wedding_auth_change', handleCustomAuthChange);
+
     return () => {
       if (subscription?.unsubscribe) {
         subscription.unsubscribe();
       }
+      window.removeEventListener('wedding_auth_change', handleCustomAuthChange);
     };
   }, []);
+
+  // Handler update login sinkron langsung dari form Login
+  const handleLoginSuccess = (newSession: any) => {
+    setSession(newSession);
+  };
+
+  // Handler logout otomatis saat sesi habis (40 menit inaktif)
+  const handleAutoLogout = async (reason?: string) => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn("Signout error:", err);
+    }
+    setSession(null);
+    if (reason) {
+      toast.error(reason, {
+        duration: 7000,
+        id: 'session-timeout-toast',
+        style: { background: '#800000', color: '#D4AF37', borderRadius: '16px', fontWeight: 'bold', border: '1px solid #D4AF37' }
+      });
+    }
+  };
 
   if (loading) {
     return (
@@ -75,6 +106,10 @@ const App: React.FC = () => {
       <Toaster position="top-right" toastOptions={{
         style: { background: '#800000', color: '#D4AF37', borderRadius: '16px', fontWeight: 'bold', border: '1px solid #D4AF37' }
       }} />
+
+      {/* Pengawas Waktu Sesi (Inaktivitas 40 Menit & Auto-Logout dengan Peringatan Modal) */}
+      <SessionTimeoutManager session={session} onLogout={handleAutoLogout} />
+
       <Routes>
         {/* Halaman Publik (Tanpa Login) untuk RSVP & Digital Guest Pass Barcode */}
         <Route path="/guest-pass" element={<GuestPass />} />
@@ -84,7 +119,7 @@ const App: React.FC = () => {
         <Route path="/validasi" element={<CheckinValidation />} />
         <Route path="/scan" element={<CheckinValidation />} />
 
-        <Route path="/login" element={!session ? <Login /> : <Navigate to={isResepsi ? "/scanner" : "/"} />} />
+        <Route path="/login" element={!session ? <Login onLoginSuccess={handleLoginSuccess} /> : <Navigate to={isResepsi ? "/scanner" : "/"} />} />
         
         {/* Dashboard utama: Jika akun resepsi langsung arahkan ke Scanner */}
         <Route path="/" element={

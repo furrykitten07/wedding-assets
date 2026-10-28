@@ -17,8 +17,40 @@ export const isCloudMode = Boolean(
   rawUrl.startsWith('https://')
 );
 
-// Listener untuk auth state change pada mode lokal
+// Listener untuk auth state change pada mode lokal & cloud
 let authListeners: Array<(event: string, session: any) => void> = [];
+
+export const notifyAuthChange = (event: string, session: any) => {
+  if (session) {
+    try {
+      localStorage.setItem('wedding_user_session', JSON.stringify(session));
+      localStorage.setItem('wedding_last_active', String(Date.now()));
+    } catch (e) {
+      console.warn('LocalStorage save error:', e);
+    }
+  } else {
+    try {
+      localStorage.removeItem('wedding_user_session');
+      localStorage.removeItem('wedding_last_active');
+    } catch (e) {
+      console.warn('LocalStorage remove error:', e);
+    }
+  }
+
+  authListeners.forEach(fn => {
+    try {
+      fn(event, session);
+    } catch (e) {
+      console.warn('Auth listener trigger error:', e);
+    }
+  });
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('wedding_auth_change', {
+      detail: { event, session }
+    }));
+  }
+};
 
 class MySqlQueryBuilder {
   private tableName: string;
@@ -168,8 +200,7 @@ const localSupabase = {
           return { data: { user: null, session: null }, error: json.error || { message: 'Login gagal' } };
         }
         const session = json.data.session;
-        localStorage.setItem('wedding_user_session', JSON.stringify(session));
-        authListeners.forEach(fn => fn('SIGNED_IN', session));
+        notifyAuthChange('SIGNED_IN', session);
         return { data: json.data, error: null };
       } catch (err: any) {
         return { data: { user: null, session: null }, error: { message: err.message || 'Gagal terhubung ke MySQL' } };
@@ -177,8 +208,7 @@ const localSupabase = {
     },
 
     signOut: async () => {
-      localStorage.removeItem('wedding_user_session');
-      authListeners.forEach(fn => fn('SIGNED_OUT', null));
+      notifyAuthChange('SIGNED_OUT', null);
       return { error: null };
     }
   },
@@ -448,7 +478,36 @@ const wrappedCloudSupabase = cloudSupabase ? {
       } catch (err) {
         // abaikan
       }
-      return cloudSupabase.auth.getSession();
+      const res = await cloudSupabase.auth.getSession();
+      if (res.data?.session) {
+        try {
+          localStorage.setItem('wedding_user_session', JSON.stringify(res.data.session));
+        } catch (_) {}
+      }
+      return res;
+    },
+    onAuthStateChange: (callback: (event: string, session: any) => void) => {
+      authListeners.push(callback);
+      const sub = cloudSupabase.auth.onAuthStateChange((event: string, session: any) => {
+        if (session) {
+          try {
+            localStorage.setItem('wedding_user_session', JSON.stringify(session));
+          } catch (_) {}
+        }
+        callback(event, session);
+      });
+      return {
+        data: {
+          subscription: {
+            unsubscribe: () => {
+              authListeners = authListeners.filter(fn => fn !== callback);
+              if (sub?.data?.subscription?.unsubscribe) {
+                sub.data.subscription.unsubscribe();
+              }
+            }
+          }
+        }
+      };
     },
     signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
       const clean = (email || '').toLowerCase().trim();
@@ -471,16 +530,24 @@ const wrappedCloudSupabase = cloudSupabase ? {
           access_token: 'resepsi-session-token-' + Date.now(),
           token_type: 'bearer'
         };
-        localStorage.setItem('wedding_user_session', JSON.stringify(session));
+        notifyAuthChange('SIGNED_IN', session);
         return { data: { user: resepsiUser, session }, error: null };
       }
 
       const res = await cloudSupabase.auth.signInWithPassword({ email, password });
+      if (res.data?.session) {
+        notifyAuthChange('SIGNED_IN', res.data.session);
+      }
       return res;
     },
     signOut: async () => {
-      localStorage.removeItem('wedding_user_session');
-      return cloudSupabase.auth.signOut();
+      notifyAuthChange('SIGNED_OUT', null);
+      try {
+        await cloudSupabase.auth.signOut();
+      } catch (err) {
+        console.warn("Supabase signout err:", err);
+      }
+      return { error: null };
     }
   },
   from: (tableName: string) => {

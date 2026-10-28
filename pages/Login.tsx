@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, logActivity } from '../supabase';
 import { 
@@ -10,16 +10,40 @@ import {
   Eye, 
   EyeOff, 
   ShieldCheck,
-  Flower2
+  Flower2,
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const Login: React.FC = () => {
+interface LoginProps {
+  onLoginSuccess?: (session: any) => void;
+}
+
+const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [inputsReady, setInputsReady] = useState(false);
+
+  // State untuk animasi transisi loading mewah menuju dashboard
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [transitionProgress, setTransitionProgress] = useState(15);
+  const [transitionStatusText, setTransitionStatusText] = useState('Memverifikasi akun...');
+  const [authenticatedUserName, setAuthenticatedUserName] = useState('');
+
   const navigate = useNavigate();
+
+  // Pengamanan Anti-Autofill: Pastikan field username dan password benar-benar kosong saat dimuat
+  useEffect(() => {
+    setEmail('');
+    setPassword('');
+    const timer = setTimeout(() => {
+      setInputsReady(true);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,16 +64,46 @@ const Login: React.FC = () => {
       if (error) throw error;
       
       const userEmail = data.user?.email || '';
+      const resolvedName = data.user?.user_metadata?.name || data.user?.name || userEmail.split('@')[0];
+      setAuthenticatedUserName(resolvedName);
+
+      // Catat log aktivitas login
       await logActivity(userEmail, 'login', 'Auth', 'User berhasil login ke sistem');
       
-      toast.success(`Selamat datang, ${data.user?.name || userEmail.split('@')[0]}! ❤️`);
-      
-      const isResepsi = userEmail.toLowerCase().includes('resepsi') || userEmail.toLowerCase().includes('scanner') || userEmail.toLowerCase().includes('panitia');
-      navigate(isResepsi ? '/scanner' : '/', { replace: true });
+      // Update session pada state induk secara sinkron
+      if (data.session && onLoginSuccess) {
+        onLoginSuccess(data.session);
+      }
+
+      // Aktifkan animasi transisi loading mewah menuju dashboard
+      setIsTransitioning(true);
+      setTransitionProgress(35);
+      setTransitionStatusText('Kredensial Terverifikasi...');
+
+      const isResepsi = userEmail.toLowerCase().includes('resepsi') || 
+                        userEmail.toLowerCase().includes('scanner') || 
+                        userEmail.toLowerCase().includes('panitia');
+
+      const targetPath = isResepsi ? '/scanner' : '/';
+
+      // Tahap 2 animasi loading
+      setTimeout(() => {
+        setTransitionProgress(75);
+        setTransitionStatusText(`Selamat Datang, ${resolvedName}! Mempersiapkan Portal...`);
+      }, 450);
+
+      // Tahap 3: Selesai & alihkan langsung ke dashboard tanpa perlu refresh manual
+      setTimeout(() => {
+        setTransitionProgress(100);
+        setTransitionStatusText('Mengalihkan ke Dashboard...');
+        toast.success(`Selamat datang, ${resolvedName}! ❤️`, { id: 'login-toast' });
+        navigate(targetPath, { replace: true });
+      }, 1050);
+
     } catch (error: any) {
       toast.error(error.message || 'Login gagal. Periksa kembali username & password.');
-    } finally {
       setLoading(false);
+      setIsTransitioning(false);
     }
   };
 
@@ -62,6 +116,52 @@ const Login: React.FC = () => {
 
       {/* Subtle Pattern Texture */}
       <div className="absolute inset-0 opacity-[0.025] pointer-events-none bg-[radial-gradient(#800000_1px,transparent_1px)] [background-size:24px_24px]"></div>
+
+      {/* OVERLAY ANIMASI LOADING MEWAH MENUJU DASHBOARD */}
+      {isTransitioning && (
+        <div className="fixed inset-0 z-50 bg-stone-950/85 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center animate-fade-in font-serif">
+          <div className="relative mb-8">
+            {/* Spinning Gold Outer Ring */}
+            <div className="w-28 h-28 border-4 border-gold-300/30 border-t-gold-400 rounded-full animate-spin shadow-2xl"></div>
+            {/* Inner Glowing Monogram */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-maroon via-maroon-800 to-maroon-900 border border-gold/70 flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform">
+                <span className="text-gold font-serif text-2xl font-bold tracking-widest drop-shadow">FN</span>
+              </div>
+            </div>
+            {/* Beating Heart Badge */}
+            <div className="absolute -bottom-2 right-2 w-7 h-7 rounded-full bg-maroon border border-gold flex items-center justify-center shadow-md animate-pulse">
+              <Heart size={13} className="text-gold fill-gold" />
+            </div>
+          </div>
+
+          {/* Heading Greetings */}
+          <div className="space-y-2 max-w-md">
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white/10 border border-gold/30 text-gold-300 text-xs font-sans font-semibold tracking-wider">
+              <Sparkles size={12} className="text-gold" />
+              <span>Autentikasi Berhasil</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-wide">
+              {authenticatedUserName ? `Selamat Datang, ${authenticatedUserName}` : 'Memuat Portal Fikri & Nadya'}
+            </h2>
+            <p className="text-xs sm:text-sm text-gold-200/80 font-sans font-normal tracking-wide animate-pulse">
+              {transitionStatusText}
+            </p>
+          </div>
+
+          {/* Luxury Progress Bar */}
+          <div className="w-64 max-w-xs mt-6 bg-white/10 rounded-full h-2 p-0.5 border border-gold/30 overflow-hidden shadow-inner">
+            <div
+              className="bg-gradient-to-r from-gold-400 via-amber-300 to-gold-500 h-full rounded-full transition-all duration-500 ease-out shadow-[0_0_12px_rgba(212,175,55,0.8)]"
+              style={{ width: `${transitionProgress}%` }}
+            />
+          </div>
+
+          <p className="text-[10px] text-stone-400 font-sans mt-4 uppercase tracking-[0.25em]">
+            Menata Kebahagiaan Menuju Hari Bahagia
+          </p>
+        </div>
+      )}
 
       {/* Main Container Card */}
       <div className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-[0_20px_60px_-15px_rgba(128,0,0,0.12)] border border-gold-200/50 overflow-hidden relative z-10 transition-all grid grid-cols-1 lg:grid-cols-12 animate-fade-in">
@@ -127,16 +227,23 @@ const Login: React.FC = () => {
                 Selamat Datang Kembali
               </h2>
               <p className="text-gray-400 text-xs sm:text-sm mt-2 font-normal">
-                Silakan masukkan akun Anda untuk mengakses portal:
+                Silakan ketikkan akun Anda untuk mengakses portal:
               </p>
             </div>
 
-            {/* Login Form */}
-            <form onSubmit={handleLogin} className="space-y-6">
+            {/* Login Form with Anti-Autofill Protections */}
+            <form onSubmit={handleLogin} autoComplete="off" className="space-y-6">
               
+              {/* Dummy hidden inputs to divert Chromium aggressive autofill */}
+              <input type="text" name="fake_wedding_user" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+              <input type="password" name="fake_wedding_pass" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+
               {/* Username / Email Input */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider block ml-1">
+                <label 
+                  htmlFor="wedding_auth_username_field" 
+                  className="text-xs font-semibold text-gray-600 uppercase tracking-wider block ml-1"
+                >
                   Username / Email
                 </label>
                 <div className="relative group">
@@ -144,10 +251,17 @@ const Login: React.FC = () => {
                     <User size={18} />
                   </div>
                   <input
+                    id="wedding_auth_username_field"
+                    name="wedding_auth_username_field"
                     type="text"
                     required
-                    placeholder="Masukkan username atau email"
-                    autoComplete="username"
+                    readOnly={!inputsReady}
+                    onFocus={(e) => e.target.removeAttribute('readonly')}
+                    placeholder="Ketik username atau email"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
                     className="w-full pl-12 pr-4 py-3.5 bg-gray-50/70 hover:bg-white focus:bg-white border border-gray-200 rounded-2xl outline-none focus:border-maroon focus:ring-4 focus:ring-maroon/10 text-gray-900 font-medium text-sm transition-all shadow-inner placeholder:text-gray-400"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -155,9 +269,12 @@ const Login: React.FC = () => {
                 </div>
               </div>
 
-              {/* Password Input (Label simple "Password") */}
+              {/* Password Input */}
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-gray-600 uppercase tracking-wider block ml-1">
+                <label 
+                  htmlFor="wedding_auth_secret_field" 
+                  className="text-xs font-semibold text-gray-600 uppercase tracking-wider block ml-1"
+                >
                   Password
                 </label>
                 <div className="relative group">
@@ -165,10 +282,14 @@ const Login: React.FC = () => {
                     <Lock size={18} />
                   </div>
                   <input
+                    id="wedding_auth_secret_field"
+                    name="wedding_auth_secret_field"
                     type={showPassword ? 'text' : 'password'}
                     required
-                    placeholder="Masukkan password Anda"
-                    autoComplete="current-password"
+                    readOnly={!inputsReady}
+                    onFocus={(e) => e.target.removeAttribute('readonly')}
+                    placeholder="Ketik password Anda"
+                    autoComplete="new-password"
                     className="w-full pl-12 pr-12 py-3.5 bg-gray-50/70 hover:bg-white focus:bg-white border border-gray-200 rounded-2xl outline-none focus:border-maroon focus:ring-4 focus:ring-maroon/10 text-gray-900 font-medium text-sm transition-all shadow-inner placeholder:text-gray-400"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -176,7 +297,7 @@ const Login: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-maroon transition-colors p-1"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-maroon transition-colors p-1 cursor-pointer"
                     tabIndex={-1}
                     aria-label="Toggle password visibility"
                   >
@@ -185,24 +306,31 @@ const Login: React.FC = () => {
                 </div>
               </div>
 
-              {/* Submit Button */}
+              {/* Submit Button with Loading Indicator */}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || isTransitioning}
                 className="w-full mt-4 bg-maroon hover:bg-maroon-800 text-gold hover:text-white py-4 px-6 rounded-2xl font-bold text-sm tracking-wide shadow-lg shadow-maroon/20 hover:shadow-xl hover:shadow-maroon/30 border border-gold-400/40 hover:border-gold flex items-center justify-center space-x-2 transition-all duration-300 active:scale-[0.99] disabled:opacity-60 group cursor-pointer"
               >
-                <span>{loading ? 'Memverifikasi...' : 'Masuk ke Portal'}</span>
-                {!loading && (
-                  <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform text-gold" />
+                {loading || isTransitioning ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin text-gold" />
+                    <span>Memverifikasi & Menyiapkan Portal...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Masuk ke Portal</span>
+                    <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform text-gold" />
+                  </>
                 )}
               </button>
             </form>
 
-            {/* Footer Status */}
+            {/* Footer Security Status */}
             <div className="mt-10 pt-6 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
               <div className="flex items-center space-x-2 text-emerald-700 font-medium text-xs">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Database MySQL Terhubung</span>
+                <span>Enkripsi Sesi Aktif</span>
               </div>
               <div className="flex items-center space-x-1.5 text-gray-400 text-xs">
                 <ShieldCheck size={14} className="text-gold-600" />

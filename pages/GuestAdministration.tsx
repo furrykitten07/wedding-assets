@@ -218,13 +218,8 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
           scannerRef.current = html5QrCode;
 
           const config = {
-            fps: 15,
-            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-              const minDim = Math.min(viewfinderWidth, viewfinderHeight);
-              const qrboxSize = Math.floor(minDim * 0.72);
-              return { width: qrboxSize, height: qrboxSize };
-            },
-            aspectRatio: 1.0
+            fps: 15
+            // Omit qrbox to allow scanning anywhere across the entire camera view
           };
 
           const cameraIdOrConfig = selectedCameraId
@@ -800,22 +795,17 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
               </div>
             </div>
 
-            {/* Large Camera Viewport */}
+            {/* Large Camera Viewport (Full-Frame Scanning Without Restrictive Box) */}
             <div className="relative flex-1 bg-black flex items-center justify-center min-h-[440px] sm:min-h-[520px] md:h-[65vh] overflow-hidden">
               <div 
                 id="guest-qr-reader" 
-                className="w-full h-full flex items-center justify-center [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover [&_video:not(:first-of-type)]:!hidden [&>div]:!w-full [&>div]:!h-full [&>div]:!border-none" 
+                className="w-full h-full flex items-center justify-center [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover [&_video:not(:first-of-type)]:!hidden [&>div]:!w-full [&>div]:!h-full [&>div]:!border-none [&_*]:!border-none [&_#qr-shaded-region]:!hidden" 
               />
 
-              {/* Scanning Reticles & Active Laser Line */}
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-64 h-64 sm:w-80 sm:h-80 border-2 border-gold/40 rounded-3xl relative flex items-center justify-center">
-                  <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-gold rounded-tl-xl" />
-                  <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-gold rounded-tr-xl" />
-                  <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-gold rounded-bl-xl" />
-                  <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-gold rounded-br-xl" />
-                  <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_15px_#f59e0b] animate-pulse" />
-                </div>
+              {/* Full-Frame Scan Mode Badge */}
+              <div className="absolute top-4 left-4 pointer-events-none z-10 flex items-center space-x-2 bg-black/65 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-gold/40 text-gold text-xs font-semibold shadow-lg">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Scan Seluruh Layar Aktif (Bebas Sudut)</span>
               </div>
 
               {/* In-Modal Scan Result Notification */}
@@ -905,7 +895,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
               <div className="flex items-center space-x-2 text-stone-400">
                 <Sparkles size={14} className="text-gold shrink-0" />
                 <p>
-                  Jaga jarak layar HP tamu sekitar <strong className="text-gold">15–25 cm</strong> di depan webcam/kamera.
+                  Barcode dapat dideteksi di bagian mana saja pada kamera (jarak ideal <strong className="text-gold">15–25 cm</strong>).
                 </p>
               </div>
 

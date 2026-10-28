@@ -400,12 +400,8 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
           await html5QrCode.start(
             cameraConfig,
             {
-              fps: 15,
-              qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-                const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-                const size = Math.floor(minEdge * 0.75);
-                return { width: Math.max(size, 260), height: Math.max(size, 260) };
-              }
+              fps: 15
+              // Omit qrbox to allow scanning anywhere across the entire camera view
             },
             (decodedText) => {
               if (isMounted && !isProcessingRef.current) {
@@ -1008,26 +1004,18 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               </div>
             </div>
 
-            {/* Modal Body: Single Large Camera Viewport */}
+            {/* Modal Body: Single Large Camera Viewport (Full-Frame Scanning Without Restrictive Box) */}
             <div className="relative flex-1 bg-black flex items-center justify-center min-h-[420px] sm:min-h-[500px] md:h-[62vh] overflow-hidden">
               {/* Single Video Container (Forced single stream & full cover) */}
               <div 
                 id="scanner-modal-reader" 
-                className="w-full h-full flex items-center justify-center [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover [&_video:not(:first-of-type)]:!hidden [&>div]:!w-full [&>div]:!h-full [&>div]:!border-none" 
+                className="w-full h-full flex items-center justify-center [&_video]:!w-full [&_video]:!h-full [&_video]:!object-cover [&_video:not(:first-of-type)]:!hidden [&>div]:!w-full [&>div]:!h-full [&>div]:!border-none [&_*]:!border-none [&_#qr-shaded-region]:!hidden" 
               />
 
-              {/* Scanning Target Reticles & Active Laser Line */}
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                {/* Golden Corner Reticles */}
-                <div className="w-64 h-64 sm:w-80 sm:h-80 border-2 border-gold/40 rounded-3xl relative flex items-center justify-center">
-                  <div className="absolute -top-1 -left-1 w-8 h-8 border-t-4 border-l-4 border-gold rounded-tl-xl" />
-                  <div className="absolute -top-1 -right-1 w-8 h-8 border-t-4 border-r-4 border-gold rounded-tr-xl" />
-                  <div className="absolute -bottom-1 -left-1 w-8 h-8 border-b-4 border-l-4 border-gold rounded-bl-xl" />
-                  <div className="absolute -bottom-1 -right-1 w-8 h-8 border-b-4 border-r-4 border-gold rounded-br-xl" />
-                  
-                  {/* Active Laser Sweep */}
-                  <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_15px_#f59e0b] animate-pulse" />
-                </div>
+              {/* Full-Frame Scan Mode Badge */}
+              <div className="absolute top-4 left-4 pointer-events-none z-10 flex items-center space-x-2 bg-black/65 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-gold/40 text-gold text-xs font-semibold shadow-lg">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Scan Seluruh Layar Aktif (Bebas Sudut)</span>
               </div>
 
               {/* Scan Result Popup Overlay inside Modal */}
@@ -1117,7 +1105,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
               <div className="flex items-center justify-between text-xs text-stone-400">
                 <span className="flex items-center space-x-1.5">
                   <Info size={14} className="text-gold" />
-                  <span>Jarak HP tamu ideal: <strong>15–25 cm</strong> di depan kamera.</span>
+                  <span>Deteksi barcode bebas di seluruh layar (jarak ideal: <strong>15–25 cm</strong>).</span>
                 </span>
                 <span className="text-stone-500 font-mono text-[11px]">
                   Sensor: 15 FPS • GPU Active

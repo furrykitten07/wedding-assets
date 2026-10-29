@@ -32,12 +32,30 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const isResepsi = userEmail.toLowerCase().includes('resepsi') || userEmail.toLowerCase().includes('scanner') || userEmail.toLowerCase().includes('panitia');
-  const isFikri = userEmail.toLowerCase().includes('fikri');
-  const roleLabel = isResepsi ? 'Petugas Resepsi & Scan' : isFikri ? 'Calon Suami' : 'Calon Istri';
+  const cleanEmail = (userEmail || '').toLowerCase();
+  const isStaff = cleanEmail.includes('staff') || 
+                  cleanEmail.includes('resepsi') || 
+                  cleanEmail.includes('scanner') || 
+                  cleanEmail.includes('panitia');
+  const isStaff1 = cleanEmail.includes('staff1');
+  const isStaff2 = cleanEmail.includes('staff2');
+  const isFikri = cleanEmail.includes('fikri');
+
+  let roleLabel = 'Staff Resepsi & Scan';
+  if (isStaff1) {
+    roleLabel = 'Staff 1 • Resepsi & Scan';
+  } else if (isStaff2) {
+    roleLabel = 'Staff 2 • Resepsi & Scan';
+  } else if (isStaff) {
+    roleLabel = 'Staff Resepsi & Scan';
+  } else if (isFikri) {
+    roleLabel = 'Calon Suami';
+  } else {
+    roleLabel = 'Calon Istri';
+  }
 
   useEffect(() => {
-    if (isResepsi) return;
+    if (isStaff) return;
     const fetchUnread = async () => {
       const { data } = await supabase.from('messages').select('*').eq('receiver_email', userEmail).eq('is_read', false);
       setUnreadCount(data?.length || 0);
@@ -45,15 +63,16 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
     fetchUnread();
     const interval = setInterval(fetchUnread, 5000);
     return () => clearInterval(interval);
-  }, [userEmail, location.pathname, isResepsi]);
+  }, [userEmail, location.pathname, isStaff]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
   };
 
-  const navItems = isResepsi ? [
-    { name: 'Scan Kehadiran', icon: Camera, path: '/scanner' },
+  const navItems = isStaff ? [
+    { name: 'Scan Kehadiran & Souvenir', icon: Camera, path: '/scanner' },
+    { name: 'Daftar Tamu (VIP & Reguler)', icon: Users, path: '/tamu' },
     { name: 'Buku Tamu & Data', icon: QrCode, path: '/administrasi-tamu' },
   ] : [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
@@ -107,7 +126,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
       </nav>
 
       <div className="p-4 border-t border-gray-100 space-y-3">
-        {!isResepsi && (
+        {!isStaff && (
           <>
             <NavLink
                 to="/ideas"
@@ -145,10 +164,12 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
         <div className={`mb-4 ${isCollapsed ? 'hidden' : 'block'}`}>
           <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-maroon flex items-center justify-center text-gold font-bold text-sm uppercase shadow-sm border border-gold-200">
-              {userEmail.charAt(0)}
+              {isStaff1 ? 'S1' : isStaff2 ? 'S2' : userEmail.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-maroon truncate uppercase">{userEmail.split('@')[0]}</p>
+              <p className="text-sm font-bold text-maroon truncate uppercase">
+                {isStaff1 ? 'Staff 1' : isStaff2 ? 'Staff 2' : (userEmail.split('@')[0] || 'User')}
+              </p>
               <p className="text-[10px] text-gold-700 font-bold tracking-widest uppercase">{roleLabel}</p>
             </div>
           </div>

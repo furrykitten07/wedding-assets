@@ -471,7 +471,14 @@ const wrappedCloudSupabase = cloudSupabase ? {
         const stored = localStorage.getItem('wedding_user_session');
         if (stored) {
           const session = JSON.parse(stored);
-          if (session?.user?.email?.includes('resepsi') || session?.user?.role === 'resepsi') {
+          const email = (session?.user?.email || '').toLowerCase();
+          const role = session?.user?.role || session?.user?.user_metadata?.role;
+          if (
+            email.includes('resepsi') || 
+            email.includes('staff') || 
+            role === 'resepsi' || 
+            role === 'staff'
+          ) {
             return { data: { session }, error: null };
           }
         }
@@ -511,10 +518,87 @@ const wrappedCloudSupabase = cloudSupabase ? {
     },
     signInWithPassword: async ({ email, password }: { email: string; password: string }) => {
       const clean = (email || '').toLowerCase().trim();
+      const rawUser = clean.includes('@') ? clean.split('@')[0] : clean;
       const isResepsi = clean.includes('resepsi') || clean.includes('scanner') || clean.includes('panitia');
-      
-      // Kredensial akun khusus Petugas Resepsi
-      if (isResepsi && (password === 'resepsi260918' || password === 'resepsi' || password === 'fiinad260918')) {
+      const isStaff1 = rawUser === 'staff1' || clean === 'staff1@wedding.com';
+      const isStaff2 = rawUser === 'staff2' || clean === 'staff2@wedding.com';
+      const isStaffGeneric = (clean.includes('staff') || rawUser.includes('staff')) && !isStaff1 && !isStaff2;
+
+      const isAllowedStaffPass = 
+        password === 'staff260918' || 
+        password === 'staff123' || 
+        password === 'staff' || 
+        password === 'resepsi260918' || 
+        password === 'resepsi' || 
+        password === 'fiinad260918';
+
+      // 1. Akun Staff 1
+      if (isStaff1 && isAllowedStaffPass) {
+        const staff1User = {
+          id: 'a1b2c3d4-staff-1111-9999-000000000001',
+          email: 'staff1@wedding.com',
+          name: 'Staff 1 (Meja Resepsi & Scan)',
+          user_metadata: {
+            name: 'Staff 1 (Meja Resepsi & Scan)',
+            role: 'staff',
+            staff_number: 1
+          },
+          role: 'staff'
+        };
+        const session = {
+          user: staff1User,
+          access_token: 'staff1-session-token-' + Date.now(),
+          token_type: 'bearer'
+        };
+        notifyAuthChange('SIGNED_IN', session);
+        return { data: { user: staff1User, session }, error: null };
+      }
+
+      // 2. Akun Staff 2
+      if (isStaff2 && isAllowedStaffPass) {
+        const staff2User = {
+          id: 'a1b2c3d4-staff-2222-9999-000000000002',
+          email: 'staff2@wedding.com',
+          name: 'Staff 2 (Meja Resepsi & Scan)',
+          user_metadata: {
+            name: 'Staff 2 (Meja Resepsi & Scan)',
+            role: 'staff',
+            staff_number: 2
+          },
+          role: 'staff'
+        };
+        const session = {
+          user: staff2User,
+          access_token: 'staff2-session-token-' + Date.now(),
+          token_type: 'bearer'
+        };
+        notifyAuthChange('SIGNED_IN', session);
+        return { data: { user: staff2User, session }, error: null };
+      }
+
+      // 3. Akun Staff Generic
+      if (isStaffGeneric && isAllowedStaffPass) {
+        const staffUser = {
+          id: 'a1b2c3d4-staff-generic-000000000000',
+          email: clean.includes('@') ? clean : `${clean}@wedding.com`,
+          name: 'Staff Resepsi & Scan',
+          user_metadata: {
+            name: 'Staff Resepsi & Scan',
+            role: 'staff'
+          },
+          role: 'staff'
+        };
+        const session = {
+          user: staffUser,
+          access_token: 'staff-session-token-' + Date.now(),
+          token_type: 'bearer'
+        };
+        notifyAuthChange('SIGNED_IN', session);
+        return { data: { user: staffUser, session }, error: null };
+      }
+
+      // 4. Kredensial akun khusus Petugas Resepsi
+      if (isResepsi && (password === 'resepsi260918' || password === 'resepsi' || password === 'fiinad260918' || password === 'staff123')) {
         const resepsiUser = {
           id: '9612015a-170f-4bc4-8421-a1aa281d3945',
           email: 'resepsi@wedding.com',

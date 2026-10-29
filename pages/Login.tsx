@@ -80,11 +80,17 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       setTransitionProgress(35);
       setTransitionStatusText('Kredensial Terverifikasi...');
 
-      const isResepsi = userEmail.toLowerCase().includes('resepsi') || 
-                        userEmail.toLowerCase().includes('scanner') || 
-                        userEmail.toLowerCase().includes('panitia');
+      const isStaffOrResepsi = 
+        userEmail.toLowerCase().includes('staff') ||
+        userEmail.toLowerCase().includes('resepsi') || 
+        userEmail.toLowerCase().includes('scanner') || 
+        userEmail.toLowerCase().includes('panitia') ||
+        data.user?.role === 'staff' ||
+        data.user?.role === 'resepsi' ||
+        data.user?.user_metadata?.role === 'staff' ||
+        data.user?.user_metadata?.role === 'resepsi';
 
-      const targetPath = isResepsi ? '/scanner' : '/';
+      const targetPath = isStaffOrResepsi ? '/scanner' : '/';
 
       // Tahap 2 animasi loading
       setTimeout(() => {

@@ -86,6 +86,11 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
     jumlah_tambahan: 1
   });
 
+  const isStaff = (userEmail || '').toLowerCase().includes('staff') ||
+                  (userEmail || '').toLowerCase().includes('resepsi') ||
+                  (userEmail || '').toLowerCase().includes('scanner') ||
+                  (userEmail || '').toLowerCase().includes('panitia');
+
   // Helper untuk menghitung total pax tamu
   const getGuestPax = (g: Guest): number => {
     return 1 + (g.membawa_pasangan ? Number(g.jumlah_tambahan || 0) : 0);
@@ -285,6 +290,10 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
 
   // Form handlers
   const handleOpenAddModal = () => {
+    if (isStaff) {
+      toast.error('Akun Staff hanya memiliki hak akses untuk melihat daftar tamu.');
+      return;
+    }
     setEditingGuest(null);
     setFormData({
       nama_tamu: '',
@@ -299,6 +308,10 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
   };
 
   const handleOpenEditModal = (guest: Guest) => {
+    if (isStaff) {
+      toast.error('Akun Staff hanya memiliki hak akses untuk melihat daftar tamu.');
+      return;
+    }
     setEditingGuest(guest);
     setFormData({
       nama_tamu: guest.nama_tamu,
@@ -315,6 +328,10 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
   // Submit form dengan sinkronisasi otomatis ke buku_tamu (QR barcode & link)
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isStaff) {
+      toast.error('Akun Staff hanya memiliki hak akses untuk melihat daftar tamu.');
+      return;
+    }
     if (!formData.nama_tamu.trim()) {
       toast.error('Nama tamu wajib diisi!');
       return;
@@ -411,6 +428,10 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
 
   // Delete tamu dengan penghapusan otomatis di buku_tamu
   const handleDelete = async (guest: Guest) => {
+    if (isStaff) {
+      toast.error('Akun Staff tidak memiliki izin untuk menghapus data tamu.');
+      return;
+    }
     if (!confirm(`Hapus tamu "${guest.nama_tamu}" dari daftar undangan dan buku tamu?`)) return;
     try {
       // 1. Hapus dari tabel tamu
@@ -563,14 +584,21 @@ Link RSVP: ${rsvpUrl}`;
             <RefreshCw size={18} className={isRefreshing ? 'animate-spin text-gold' : ''} />
           </button>
 
-          {/* Add Guest Button */}
-          <button
-            onClick={handleOpenAddModal}
-            className="px-6 py-3.5 rounded-2xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs tracking-wider uppercase shadow-xl border border-gold/40 flex items-center space-x-2 transition-all active:scale-95 group cursor-pointer"
-          >
-            <UserPlus size={18} className="group-hover:scale-110 transition-transform text-gold" />
-            <span>+ Tambah Tamu (Auto QR)</span>
-          </button>
+          {/* Add Guest Button (Pengantin) / Mode Staff Indicator (Staff) */}
+          {!isStaff ? (
+            <button
+              onClick={handleOpenAddModal}
+              className="px-6 py-3.5 rounded-2xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs tracking-wider uppercase shadow-xl border border-gold/40 flex items-center space-x-2 transition-all active:scale-95 group cursor-pointer"
+            >
+              <UserPlus size={18} className="group-hover:scale-110 transition-transform text-gold" />
+              <span>+ Tambah Tamu (Auto QR)</span>
+            </button>
+          ) : (
+            <div className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-50 to-gold-50 border border-amber-300 text-amber-900 font-bold text-xs flex items-center space-x-2 shadow-sm">
+              <Award size={16} className="text-amber-700" />
+              <span>Akses Staff • Mode Melihat Tamu VIP &amp; Reguler</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -932,7 +960,7 @@ Link RSVP: ${rsvpUrl}`;
                       {/* Actions */}
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center space-x-1.5">
-                          {/* View Detail Button */}
+                          {/* View Detail Button - Always visible (Tamu VIP/Reguler, Pax, Tiket) */}
                           <button
                             onClick={() => setViewingGuest(guest)}
                             className="p-2 rounded-xl bg-stone-100 hover:bg-amber-100 text-stone-600 hover:text-maroon transition-all shadow-sm cursor-pointer"
@@ -941,23 +969,26 @@ Link RSVP: ${rsvpUrl}`;
                             <Eye size={15} />
                           </button>
 
-                          {/* Edit Button */}
-                          <button
-                            onClick={() => handleOpenEditModal(guest)}
-                            className="p-2 rounded-xl bg-stone-100 hover:bg-gold/20 text-stone-600 hover:text-amber-900 transition-all shadow-sm cursor-pointer"
-                            title="Edit Data Tamu"
-                          >
-                            <Edit2 size={15} />
-                          </button>
+                          {/* Edit & Delete Buttons - Hanya untuk Pengantin (Disembunyikan untuk Staff) */}
+                          {!isStaff && (
+                            <>
+                              <button
+                                onClick={() => handleOpenEditModal(guest)}
+                                className="p-2 rounded-xl bg-stone-100 hover:bg-gold/20 text-stone-600 hover:text-amber-900 transition-all shadow-sm cursor-pointer"
+                                title="Edit Data Tamu"
+                              >
+                                <Edit2 size={15} />
+                              </button>
 
-                          {/* Delete Button */}
-                          <button
-                            onClick={() => handleDelete(guest)}
-                            className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 transition-all shadow-sm cursor-pointer"
-                            title="Hapus Tamu dari Daftar & Buku Tamu"
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                              <button
+                                onClick={() => handleDelete(guest)}
+                                className="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 transition-all shadow-sm cursor-pointer"
+                                title="Hapus Tamu dari Daftar & Buku Tamu"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>

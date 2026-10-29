@@ -609,7 +609,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
             Scanner Kehadiran Tamu
           </h1>
           <p className="text-xs text-gray-500 mt-1">
-            Akun Petugas: <span className="font-bold text-maroon">{(userEmail || 'Petugas').split('@')[0].toUpperCase()}</span> • Buka scanner kamera atau cari nama di tabel
+            Akun Petugas: <span className="font-bold text-maroon">{userEmail.toLowerCase().includes('staff1') ? 'STAFF 1' : userEmail.toLowerCase().includes('staff2') ? 'STAFF 2' : (userEmail || 'Petugas').split('@')[0].toUpperCase()}</span> • Buka scanner kamera atau cari nama di tabel
           </p>
         </div>
 

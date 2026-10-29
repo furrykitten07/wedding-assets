@@ -87,6 +87,11 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
   const [filterKategori, setFilterKategori] = useState<'all' | 'VIP' | 'Reguler'>('all');
   const [filterSouvenir, setFilterSouvenir] = useState<'all' | 'given' | 'pending'>('all');
 
+  const isStaff = (userEmail || '').toLowerCase().includes('staff') ||
+                  (userEmail || '').toLowerCase().includes('resepsi') ||
+                  (userEmail || '').toLowerCase().includes('scanner') ||
+                  (userEmail || '').toLowerCase().includes('panitia');
+
   // Add Guest Modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSubmittingGuest, setIsSubmittingGuest] = useState(false);
@@ -439,6 +444,10 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
   // Delete Guest Record
   const handleDeleteGuest = async (guest: BukuTamu) => {
+    if (isStaff) {
+      toast.error('Akun Staff tidak memiliki izin untuk menghapus data tamu.');
+      return;
+    }
     if (!window.confirm(`Hapus data tamu "${guest.nama_tamu}" (${guest.ticket_code})?`)) return;
 
     try {
@@ -1295,14 +1304,16 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                           <QrCode size={15} />
                         </button>
 
-                        {/* Delete */}
-                        <button
-                          onClick={() => handleDeleteGuest(guest)}
-                          className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
-                          title="Hapus Data Tamu"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        {/* Delete - Hanya untuk Pengantin (Disembunyikan untuk Staff) */}
+                        {!isStaff && (
+                          <button
+                            onClick={() => handleDeleteGuest(guest)}
+                            className="p-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors cursor-pointer"
+                            title="Hapus Data Tamu"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

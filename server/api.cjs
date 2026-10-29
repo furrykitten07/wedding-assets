@@ -86,8 +86,37 @@ function transformRowToDb(row) {
 router.post('/auth/login', async (req, res) => {
   const { email, username, password } = req.body;
   const identifier = (email || username || '').trim();
-  const rawUser = identifier.includes('@') ? identifier.split('@')[0] : identifier;
-  const rawEmail = identifier.includes('@') ? identifier : `${identifier}@wedding.com`;
+  const rawUser = identifier.includes('@') ? identifier.split('@')[0].toLowerCase() : identifier.toLowerCase();
+  const rawEmail = identifier.includes('@') ? identifier.toLowerCase() : `${identifier.toLowerCase()}@wedding.com`;
+
+  // Fallback cepat untuk akun staff & resepsi jika tabel users belum sempat diupdate
+  const isStaff1 = rawUser === 'staff1' || rawEmail === 'staff1@wedding.com';
+  const isStaff2 = rawUser === 'staff2' || rawEmail === 'staff2@wedding.com';
+  const isResepsi = rawUser === 'resepsi' || rawEmail === 'resepsi@wedding.com';
+  const isAllowedPass = password === 'staff260918' || password === 'staff123' || password === 'resepsi260918' || password === 'fiinad260918' || password === 'staff';
+
+  if ((isStaff1 || isStaff2 || isResepsi) && isAllowedPass) {
+    const role = isResepsi ? 'resepsi' : 'staff';
+    const name = isStaff1 ? 'Staff 1 (Meja Resepsi & Scan)' : isStaff2 ? 'Staff 2 (Meja Resepsi & Scan)' : 'Petugas Resepsi & Scan';
+    const userEmail = isStaff1 ? 'staff1@wedding.com' : isStaff2 ? 'staff2@wedding.com' : 'resepsi@wedding.com';
+    const sessionUser = {
+      id: isStaff1 ? 'a1b2c3d4-staff-1111-9999-000000000001' : isStaff2 ? 'a1b2c3d4-staff-2222-9999-000000000002' : '9612015a-170f-4bc4-8421-a1aa281d3945',
+      email: userEmail,
+      username: rawUser,
+      name,
+      role
+    };
+    return res.json({
+      data: {
+        user: sessionUser,
+        session: {
+          user: sessionUser,
+          access_token: 'local-mysql-token-' + sessionUser.id
+        }
+      },
+      error: null
+    });
+  }
 
   try {
     const [rows] = await pool.query(

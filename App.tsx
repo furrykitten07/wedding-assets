@@ -99,7 +99,14 @@ const App: React.FC = () => {
   }
 
   const userEmail = session?.user?.email || '';
-  const isResepsi = userEmail.toLowerCase().includes('resepsi') || userEmail.toLowerCase().includes('scanner') || userEmail.toLowerCase().includes('panitia');
+  const userRole = session?.user?.role || session?.user?.user_metadata?.role || '';
+  const isStaffOrResepsi = 
+    userEmail.toLowerCase().includes('staff') ||
+    userEmail.toLowerCase().includes('resepsi') || 
+    userEmail.toLowerCase().includes('scanner') || 
+    userEmail.toLowerCase().includes('panitia') ||
+    userRole === 'staff' ||
+    userRole === 'resepsi';
 
   return (
     <HashRouter>
@@ -119,12 +126,12 @@ const App: React.FC = () => {
         <Route path="/validasi" element={<CheckinValidation />} />
         <Route path="/scan" element={<CheckinValidation />} />
 
-        <Route path="/login" element={!session ? <Login onLoginSuccess={handleLoginSuccess} /> : <Navigate to={isResepsi ? "/scanner" : "/"} />} />
+        <Route path="/login" element={!session ? <Login onLoginSuccess={handleLoginSuccess} /> : <Navigate to={isStaffOrResepsi ? "/scanner" : "/"} />} />
         
-        {/* Dashboard utama: Jika akun resepsi langsung arahkan ke Scanner */}
+        {/* Dashboard utama: Jika akun staff/resepsi langsung arahkan ke Scanner */}
         <Route path="/" element={
           session ? (
-            isResepsi ? (
+            isStaffOrResepsi ? (
               <Layout userEmail={userEmail}><ScannerDesk userEmail={userEmail} /></Layout>
             ) : (
               <Layout userEmail={userEmail}><Dashboard /></Layout>
@@ -132,22 +139,24 @@ const App: React.FC = () => {
           ) : <Navigate to="/login" />
         } />
 
-        {/* Menu Khusus Scan Kehadiran */}
+        {/* Menu Khusus Scan Kehadiran & Souvenir (Staff & Pengantin) */}
         <Route path="/scanner" element={session ? <Layout userEmail={userEmail}><ScannerDesk userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
         
-        {/* Administrasi Tamu (Bisa dibuka oleh pengantin dan resepsi) */}
+        {/* Administrasi Tamu (Buku Tamu & Scan) */}
         <Route path="/administrasi-tamu" element={session ? <Layout userEmail={userEmail}><GuestAdministration userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
+
+        {/* Daftar Tamu (Dapat dibuka oleh Pengantin dan Staff untuk melihat VIP / Reguler) */}
+        <Route path="/tamu" element={session ? <Layout userEmail={userEmail}><GuestList userEmail={userEmail} /></Layout> : <Navigate to="/login" />} />
         
-        {/* Menu Khusus Pengantin (Hanya Fikri & Nadya, akun resepsi dialihkan ke scanner) */}
-        <Route path="/lamaran" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><BudgetTable moduleName="Lamaran" tableName="lamaran_items" userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="/pernikahan" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><BudgetTable moduleName="Pernikahan" tableName="pernikahan_items" userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="/tamu" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><GuestList userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="/pendapatan" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><IncomeList userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="/ideas" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><Ideas userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="/prayers" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><Prayers /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="/logs" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><ActivityLogs /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="/messages" element={session ? (!isResepsi ? <Layout userEmail={userEmail}><MessageCenter userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
-        <Route path="*" element={<Navigate to={isResepsi ? "/scanner" : "/"} />} />
+        {/* Menu Khusus Pengantin (Hanya Fikri & Nadya, akun staff/resepsi dialihkan ke scanner) */}
+        <Route path="/lamaran" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><BudgetTable moduleName="Lamaran" tableName="lamaran_items" userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="/pernikahan" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><BudgetTable moduleName="Pernikahan" tableName="pernikahan_items" userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="/pendapatan" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><IncomeList userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="/ideas" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><Ideas userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="/prayers" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><Prayers /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="/logs" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><ActivityLogs /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="/messages" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><MessageCenter userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="*" element={<Navigate to={isStaffOrResepsi ? "/scanner" : "/"} />} />
       </Routes>
     </HashRouter>
   );

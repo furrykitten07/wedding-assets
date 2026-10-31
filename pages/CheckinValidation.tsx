@@ -69,6 +69,7 @@ const CheckinValidation: React.FC = () => {
   const navigate = useNavigate();
   const rawCode = searchParams.get('code') || '';
   const modeParam = searchParams.get('mode') || '';
+  const paxParam = searchParams.get('pax') || searchParams.get('count') || '';
   const isSouvenirMode = modeParam.toLowerCase() === 'souvenir' || rawCode.toUpperCase().startsWith('SV-');
 
   const [session, setSession] = useState<any>(null);
@@ -150,25 +151,40 @@ const CheckinValidation: React.FC = () => {
 
       // Handle Undangan Divisi / Kelompok (Multi-Kloter Check-in & Souvenir Bertahap)
       if (target.is_divisi) {
+        const parsedGuestPax = paxParam ? parseInt(paxParam, 10) : null;
+        const validGuestPax = parsedGuestPax !== null && !isNaN(parsedGuestPax) && parsedGuestPax > 0 ? parsedGuestPax : null;
+
         if (isSouvenirMode) {
           const policy = target.souvenir_policy || 'per_pax';
           const taken = Number(target.souvenir_taken || 0);
-          const hadir = Number(target.pax_hadir || 0);
+          const totalQuota = Number(target.kuota_pax || target.jumlah_tamu) || 1;
           const maxEntitled = policy === 'per_undangan'
             ? Math.max(0, 1 - taken)
-            : Math.max(0, hadir - taken);
+            : Math.max(0, totalQuota - taken);
 
-          setDivisiSouvenirCountInput(maxEntitled > 0 ? 1 : 0);
+          const desiredCount = validGuestPax !== null ? Math.min(validGuestPax, maxEntitled) : (maxEntitled > 0 ? 1 : 0);
+          setDivisiSouvenirCountInput(desiredCount);
           setWasAlreadyAttended(maxEntitled <= 0);
           setProcessed(false);
+
+          if (currentSess?.user && validGuestPax !== null && maxEntitled > 0) {
+            await handleConfirmDivisiSouvenirDirect(desiredCount, currentSess.user.email);
+            return;
+          }
         } else {
           const totalQ = Number(target.kuota_pax || target.jumlah_tamu) || 1;
           const hadir = Number(target.pax_hadir || 0);
           const sisa = Math.max(0, totalQ - hadir);
 
-          setDivisiPaxInput(sisa > 0 ? 1 : 0);
+          const desiredPax = validGuestPax !== null ? Math.min(validGuestPax, sisa) : (sisa > 0 ? 1 : 0);
+          setDivisiPaxInput(desiredPax);
           setWasAlreadyAttended(sisa <= 0);
           setProcessed(false);
+
+          if (currentSess?.user && validGuestPax !== null && sisa > 0) {
+            await handleConfirmDivisiCheckinDirect(desiredPax, currentSess.user.email);
+            return;
+          }
         }
         return;
       }
@@ -273,7 +289,7 @@ const CheckinValidation: React.FC = () => {
   };
 
   // Konfirmasi Check-in Kloter Divisi (Direct URL)
-  const handleConfirmDivisiCheckinDirect = async () => {
+  const handleConfirmDivisiCheckinDirect = async (overridePax?: number, overrideOfficer?: string) => {
     if (!guest || isSubmittingDivision) return;
     try {
       setIsSubmittingDivision(true);
@@ -295,14 +311,14 @@ const CheckinValidation: React.FC = () => {
         return;
       }
 
-      const inputPax = Number(divisiPaxInput);
+      const inputPax = overridePax !== undefined ? Number(overridePax) : Number(divisiPaxInput);
       if (isNaN(inputPax) || inputPax < 1 || inputPax > sisa) {
         toast.error(`Jumlah pax harus antara 1 sampai ${sisa}!`);
         return;
       }
 
       const nowIso = new Date().toISOString();
-      const officerEmail = session?.user?.email || 'resepsi@wedding.com';
+      const officerEmail = overrideOfficer || session?.user?.email || 'resepsi@wedding.com';
       const officerName = session?.user?.email?.toLowerCase().includes('staff1')
         ? 'Staff 1'
         : session?.user?.email?.toLowerCase().includes('staff2')
@@ -314,7 +330,7 @@ const CheckinValidation: React.FC = () => {
         waktu: nowIso,
         pax: inputPax,
         petugas: officerName,
-        catatan: divisiNoteInput.trim() || undefined
+        catatan: divisiNoteInput.trim() || `Ditentukan oleh tamu (+${inputPax} Pax)`
       };
 
       const newHistory = [...(latest.checkin_history || []), newTx];
@@ -357,13 +373,13 @@ const CheckinValidation: React.FC = () => {
       setGuest(updated);
       setProcessed(true);
       playChime(true);
-      toast.success(`✅ Check-in +${inputPax} Pax berhasil untuk ${latest.nama_divisi || latest.nama_tamu}! Sisa: ${newSisa} Pax.`);
+      toast.success(`✅ Check-in +${inputPax} Pax berhasil untuk ${latest.nama_divisi || latest.nama_tamu}! (Ditentukan Tamu • Sisa: ${newSisa} Pax).`);
 
       logActivity(
         officerEmail,
         'update',
         'Tamu',
-        `Check-in Kloter Divisi (Direct URL): ${latest.nama_divisi || latest.nama_tamu} (+${inputPax} Pax • Sisa: ${newSisa})`
+        `Check-in Kloter Divisi (Ditentukan Tamu): ${latest.nama_divisi || latest.nama_tamu} (+${inputPax} Pax • Sisa: ${newSisa})`
       );
     } catch (err: any) {
       toast.error('Gagal memproses check-in kloter: ' + (err?.message || err));
@@ -373,7 +389,7 @@ const CheckinValidation: React.FC = () => {
   };
 
   // Konfirmasi Serah Terima Souvenir Divisi (Direct URL)
-  const handleConfirmDivisiSouvenirDirect = async () => {
+  const handleConfirmDivisiSouvenirDirect = async (overrideCount?: number, overrideOfficer?: string) => {
     if (!guest || isSubmittingDivision) return;
     try {
       setIsSubmittingDivision(true);
@@ -399,14 +415,14 @@ const CheckinValidation: React.FC = () => {
         return;
       }
 
-      const inputCount = Number(divisiSouvenirCountInput);
+      const inputCount = overrideCount !== undefined ? Number(overrideCount) : Number(divisiSouvenirCountInput);
       if (isNaN(inputCount) || inputCount < 1 || inputCount > maxEntitled) {
         toast.error(`Jumlah souvenir harus antara 1 sampai ${maxEntitled}!`);
         return;
       }
 
       const nowIso = new Date().toISOString();
-      const officerEmail = session?.user?.email || 'resepsi@wedding.com';
+      const officerEmail = overrideOfficer || session?.user?.email || 'resepsi@wedding.com';
       const officerName = session?.user?.email?.toLowerCase().includes('staff1')
         ? 'Staff 1'
         : session?.user?.email?.toLowerCase().includes('staff2')
@@ -418,7 +434,7 @@ const CheckinValidation: React.FC = () => {
         waktu: nowIso,
         jumlah: inputCount,
         petugas: officerName,
-        catatan: divisiSouvenirNoteInput.trim() || undefined
+        catatan: divisiSouvenirNoteInput.trim() || `Ditentukan oleh tamu (${inputCount} Paket)`
       };
 
       const newHistory = [...(latest.souvenir_history || []), newSvTx];
@@ -459,13 +475,13 @@ const CheckinValidation: React.FC = () => {
       setGuest(updated);
       setProcessed(true);
       playChime(true);
-      toast.success(`🎁 Berhasil menyerahkan ${inputCount} paket souvenir untuk ${latest.nama_divisi || latest.nama_tamu}! Total: ${newTaken} paket.`);
+      toast.success(`🎁 Berhasil menyerahkan ${inputCount} paket souvenir untuk ${latest.nama_divisi || latest.nama_tamu}! (Ditentukan Tamu • Total: ${newTaken} paket).`);
 
       logActivity(
         officerEmail,
         'update',
         'Tamu',
-        `Serah Souvenir Divisi (Direct URL): ${latest.nama_divisi || latest.nama_tamu} (+${inputCount} Paket • Total: ${newTaken})`
+        `Serah Souvenir Divisi (Ditentukan Tamu): ${latest.nama_divisi || latest.nama_tamu} (+${inputCount} Paket • Total: ${newTaken})`
       );
     } catch (err: any) {
       toast.error('Gagal memproses penyerahan souvenir: ' + (err?.message || err));
@@ -816,6 +832,17 @@ const CheckinValidation: React.FC = () => {
                             </span>
                           </div>
 
+                          {paxParam && (
+                            <div className="p-2 rounded-xl bg-purple-100/90 border border-purple-200 text-purple-900 text-xs font-semibold flex items-center justify-between">
+                              <span className="flex items-center space-x-1.5">
+                                <span>📱 Ditentukan oleh Tamu di Barcode:</span>
+                              </span>
+                              <span className="bg-purple-700 text-white px-2 py-0.5 rounded-md font-bold font-mono">
+                                {paxParam} Paket
+                              </span>
+                            </div>
+                          )}
+
                           {maxEntitled <= 0 ? (
                             <p className="text-xs text-purple-800 italic bg-white p-3 rounded-xl border border-purple-200 text-center">
                               {hadir === 0
@@ -888,6 +915,17 @@ const CheckinValidation: React.FC = () => {
                               Sisa Kuota: {sisa} Pax
                             </span>
                           </div>
+
+                          {paxParam && (
+                            <div className="p-2 rounded-xl bg-amber-100/90 border border-gold-300 text-maroon text-xs font-semibold flex items-center justify-between">
+                              <span className="flex items-center space-x-1.5">
+                                <span>📱 Ditentukan oleh Tamu di Barcode:</span>
+                              </span>
+                              <span className="bg-maroon text-gold px-2 py-0.5 rounded-md font-bold font-mono">
+                                {paxParam} Pax
+                              </span>
+                            </div>
+                          )}
 
                           {sisa <= 0 ? (
                             <p className="text-xs text-rose-700 font-bold italic bg-white p-3 rounded-xl border border-rose-200 text-center">

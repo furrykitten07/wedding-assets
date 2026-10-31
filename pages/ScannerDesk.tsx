@@ -201,6 +201,17 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     return clean.toUpperCase();
   };
 
+  // Helper untuk mengekstrak jumlah pax / count dari URL atau parameter teks barcode
+  const extractPax = (raw: string): number | null => {
+    if (!raw) return null;
+    const match = raw.match(/[?&](?:pax|count)=(\d+)/i);
+    if (match && match[1]) {
+      const parsed = parseInt(match[1], 10);
+      return isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  };
+
   // Helper to detect if the scanned input represents a Souvenir action
   const isSouvenirAction = (raw: string): boolean => {
     if (!raw) return false;
@@ -214,6 +225,196 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     );
   };
 
+  // Eksekusi Check-in Otomatis ketika jumlah orang telah ditentukan langsung oleh tamu
+  const executeDirectDivisiCheckin = async (target: BukuTamu, inputPax: number, note?: string) => {
+    try {
+      // Ambil data terbaru untuk mencegah race condition
+      const { data: latestRaw, error: fetchErr } = await supabase
+        .from('buku_tamu')
+        .select('*')
+        .eq('id', target.id);
+
+      if (fetchErr && !fetchErr.message?.includes('schema cache')) throw fetchErr;
+      const latest = (Array.isArray(latestRaw) ? latestRaw[0] : latestRaw) || target;
+
+      const totalQuota = Number(latest.kuota_pax || latest.jumlah_tamu) || 1;
+      const currentHadir = Number(latest.pax_hadir || 0);
+      const currentSisa = Math.max(0, totalQuota - currentHadir);
+
+      if (currentSisa <= 0) {
+        if (soundEnabled) playChime(false);
+        toast.error(`⚠️ Kuota rombongan divisi ${latest.nama_divisi || latest.nama_tamu} sudah habis! (${currentHadir}/${totalQuota} Pax)`);
+        return;
+      }
+
+      const finalPax = Math.min(inputPax, currentSisa);
+      const nowIso = new Date().toISOString();
+      const officerName = userEmail.toLowerCase().includes('staff1')
+        ? 'Staff 1'
+        : userEmail.toLowerCase().includes('staff2')
+        ? 'Staff 2'
+        : userEmail.split('@')[0];
+
+      const newTx: CheckinTransaction = {
+        id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        waktu: nowIso,
+        pax: finalPax,
+        petugas: officerName,
+        catatan: note || `Ditentukan oleh tamu (+${finalPax} Pax)`
+      };
+
+      const newHistory = [...(latest.checkin_history || []), newTx];
+      const newPaxHadir = currentHadir + finalPax;
+      const newSisa = Math.max(0, totalQuota - newPaxHadir);
+
+      const updatePayload = {
+        pax_hadir: newPaxHadir,
+        sisa_kuota: newSisa,
+        is_attended: true,
+        attended_at: latest.attended_at || nowIso,
+        checkin_history: newHistory
+      };
+
+      const { error: updateError } = await supabase
+        .from('buku_tamu')
+        .update(updatePayload)
+        .eq('id', latest.id);
+
+      if (updateError && !updateError.message?.includes('schema cache')) throw updateError;
+
+      try {
+        await supabase
+          .from('tamu')
+          .update({
+            pax_hadir: newPaxHadir,
+            sisa_kuota: newSisa,
+            checkin_history: newHistory
+          })
+          .eq('ticket_code', latest.ticket_code);
+      } catch (_) {}
+
+      const updatedGuest: BukuTamu = {
+        ...latest,
+        ...updatePayload
+      };
+
+      setGuests((prev) => prev.map((g) => (g.id === latest.id ? updatedGuest : g)));
+
+      if (soundEnabled) playChime(true);
+      setScanResult({ guest: updatedGuest, wasAlreadyAttended: false });
+
+      toast.success(
+        `✅ Check-in +${finalPax} Pax Berhasil untuk ${latest.nama_divisi || latest.nama_tamu}! (Ditentukan Tamu • Sisa: ${newSisa} Pax)`,
+        { duration: 5000 }
+      );
+
+      logActivity(
+        userEmail,
+        'update',
+        'Tamu',
+        `Check-in Kloter Divisi (Ditentukan Tamu): ${latest.nama_divisi || latest.nama_tamu} (+${finalPax} Pax • Sisa: ${newSisa} Pax - ${latest.ticket_code})`
+      );
+    } catch (err: any) {
+      console.error('Direct divisi check-in error:', err);
+      toast.error('Gagal memproses check-in: ' + (err?.message || err));
+    }
+  };
+
+  // Eksekusi Serah Terima Souvenir Otomatis ketika jumlah souvenir telah ditentukan langsung oleh tamu
+  const executeDirectDivisiSouvenir = async (target: BukuTamu, count: number, note?: string) => {
+    try {
+      const { data: latestRaw, error: fetchErr } = await supabase
+        .from('buku_tamu')
+        .select('*')
+        .eq('id', target.id);
+
+      if (fetchErr && !fetchErr.message?.includes('schema cache')) throw fetchErr;
+      const latest = (Array.isArray(latestRaw) ? latestRaw[0] : latestRaw) || target;
+
+      const policy = latest.souvenir_policy || 'per_pax';
+      const alreadyTaken = Number(latest.souvenir_taken || 0);
+      const totalQuota = Number(latest.kuota_pax || latest.jumlah_tamu) || 1;
+      const maxEntitled = policy === 'per_undangan'
+        ? Math.max(0, 1 - alreadyTaken)
+        : Math.max(0, totalQuota - alreadyTaken);
+
+      if (maxEntitled <= 0) {
+        if (soundEnabled) playChime(false);
+        toast.error(`⚠️ Seluruh hak souvenir untuk rombongan divisi ${latest.nama_divisi || latest.nama_tamu} telah diserahkan!`);
+        return;
+      }
+
+      const finalCount = Math.min(count, maxEntitled);
+      const nowIso = new Date().toISOString();
+      const officerName = userEmail.toLowerCase().includes('staff1')
+        ? 'Staff 1'
+        : userEmail.toLowerCase().includes('staff2')
+        ? 'Staff 2'
+        : userEmail.split('@')[0];
+
+      const newTx: SouvenirTransaction = {
+        id: `sv-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        waktu: nowIso,
+        jumlah: finalCount,
+        petugas: officerName,
+        catatan: note || `Ditentukan oleh tamu (${finalCount} Paket)`
+      };
+
+      const newHistory = [...(latest.souvenir_history || []), newTx];
+      const newTaken = alreadyTaken + finalCount;
+      const isFullyGiven = policy === 'per_undangan' ? newTaken >= 1 : newTaken >= totalQuota;
+
+      const updatePayload = {
+        souvenir_taken: newTaken,
+        is_souvenir_given: isFullyGiven,
+        souvenir_given_at: latest.souvenir_given_at || nowIso,
+        souvenir_history: newHistory
+      };
+
+      const { error: updateError } = await supabase
+        .from('buku_tamu')
+        .update(updatePayload)
+        .eq('id', latest.id);
+
+      if (updateError && !updateError.message?.includes('schema cache')) throw updateError;
+
+      try {
+        await supabase
+          .from('tamu')
+          .update({
+            souvenir_taken: newTaken,
+            souvenir_history: newHistory
+          })
+          .eq('ticket_code', latest.ticket_code);
+      } catch (_) {}
+
+      const updatedGuest: BukuTamu = {
+        ...latest,
+        ...updatePayload
+      };
+
+      setGuests((prev) => prev.map((g) => (g.id === latest.id ? updatedGuest : g)));
+
+      if (soundEnabled) playChime(true);
+      setSouvenirScanResult({ guest: updatedGuest, wasAlreadyGiven: false });
+
+      toast.success(
+        `🎁 Berhasil menyerahkan ${finalCount} Souvenir untuk ${latest.nama_divisi || latest.nama_tamu}! (Ditentukan Tamu • Sisa: ${maxEntitled - finalCount} Paket)`,
+        { duration: 5000 }
+      );
+
+      logActivity(
+        userEmail,
+        'update',
+        'Tamu',
+        `Serah Souvenir Divisi (Ditentukan Tamu): ${latest.nama_divisi || latest.nama_tamu} (+${finalCount} Paket • Total: ${newTaken} - ${latest.ticket_code})`
+      );
+    } catch (err: any) {
+      console.error('Direct divisi souvenir error:', err);
+      toast.error('Gagal memproses serah souvenir: ' + (err?.message || err));
+    }
+  };
+
   // Check-in & Souvenir Claim Execution
   const handleProcessScan = async (rawInput: string) => {
     const code = extractCode(rawInput);
@@ -221,6 +422,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
     isProcessingRef.current = true;
     const isSouvenir = isSouvenirAction(rawInput);
+    const guestPaxParam = extractPax(rawInput);
 
     try {
       const { data, error } = await supabase
@@ -251,45 +453,57 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         setSouvenirScanResult(null);
 
         if (isSouvenir) {
-          // Open Division Souvenir Modal
-          setDivisiSouvenirTarget(target);
           const policy = target.souvenir_policy || 'per_pax';
           const taken = Number(target.souvenir_taken || 0);
-          const totalHadir = Number(target.pax_hadir || 0);
+          const totalQuota = Number(target.kuota_pax || target.jumlah_tamu) || 1;
           const maxEntitled = policy === 'per_undangan'
             ? Math.max(0, 1 - taken)
-            : Math.max(0, totalHadir - taken);
+            : Math.max(0, totalQuota - taken);
 
+          if (maxEntitled <= 0) {
+            if (soundEnabled) playChime(false);
+            toast.error(`⚠️ Seluruh hak souvenir untuk rombongan ${target.nama_divisi || target.nama_tamu} telah diserahkan! (${taken} Paket)`, { duration: 5000 });
+            return;
+          }
+
+          // JIKA JUMLAH SOUVENIR TELAH DITENTUKAN OLEH TAMU DARI BARCODE HP-NYA
+          if (guestPaxParam !== null && guestPaxParam > 0) {
+            const finalCount = Math.min(guestPaxParam, maxEntitled);
+            await executeDirectDivisiSouvenir(target, finalCount, `Ditentukan oleh tamu (${finalCount} Paket)`);
+            return;
+          }
+
+          // Fallback jika scan kode tanpa parameter jumlah: buka modal input staff
+          setDivisiSouvenirTarget(target);
           setDivisiSouvenirCount(maxEntitled > 0 ? 1 : 0);
           setDivisiSouvenirNote('');
           if (soundEnabled) playChime(maxEntitled > 0);
-
-          if (maxEntitled <= 0) {
-            if (policy === 'per_pax' && totalHadir === 0) {
-              toast.error(`⚠️ Belum ada anggota ${target.nama_divisi || target.nama_tamu} yang check-in! Souvenir diberikan sesuai pax hadir.`, { duration: 5000 });
-            } else {
-              toast.error(`⚠️ Seluruh hak souvenir untuk rombongan yang sudah hadir telah diambil!`, { duration: 5000 });
-            }
-          } else {
-            toast.success(`🎁 Undangan Divisi: ${target.nama_divisi || target.nama_tamu} (${maxEntitled} Souvenir Tersedia)`, { duration: 4000 });
-          }
+          toast.success(`🎁 Undangan Divisi: ${target.nama_divisi || target.nama_tamu} (${maxEntitled} Souvenir Tersedia)`, { duration: 4000 });
           return;
         } else {
-          // Open Division Check-in Modal
-          setDivisiCheckinTarget(target);
           const totalQ = Number(target.kuota_pax || target.jumlah_tamu) || 1;
           const currentHadir = Number(target.pax_hadir || 0);
           const sisa = Math.max(0, totalQ - currentHadir);
 
+          if (sisa <= 0) {
+            if (soundEnabled) playChime(false);
+            toast.error(`⚠️ Kuota rombongan divisi ${target.nama_divisi || target.nama_tamu} sudah PENUH (${currentHadir}/${totalQ} Pax Hadir)!`, { duration: 5000 });
+            return;
+          }
+
+          // JIKA JUMLAH ORANG / PAX TELAH DITENTUKAN OLEH TAMU DARI BARCODE HP-NYA
+          if (guestPaxParam !== null && guestPaxParam > 0) {
+            const finalPax = Math.min(guestPaxParam, sisa);
+            await executeDirectDivisiCheckin(target, finalPax, `Ditentukan oleh tamu (+${finalPax} Pax)`);
+            return;
+          }
+
+          // Fallback jika scan kode tanpa parameter pax: buka modal input staff
+          setDivisiCheckinTarget(target);
           setDivisiCheckinPax(sisa > 0 ? 1 : 0);
           setDivisiCheckinNote('');
           if (soundEnabled) playChime(sisa > 0);
-
-          if (sisa <= 0) {
-            toast.error(`⚠️ Kuota rombongan divisi ${target.nama_divisi || target.nama_tamu} sudah PENUH (${currentHadir}/${totalQ} Pax Hadir)!`, { duration: 5000 });
-          } else {
-            toast.success(`🏢 Undangan Divisi: ${target.nama_divisi || target.nama_tamu} (Sisa Kuota: ${sisa} Pax)`, { duration: 4000 });
-          }
+          toast.success(`🏢 Undangan Divisi: ${target.nama_divisi || target.nama_tamu} (Sisa Kuota: ${sisa} Pax)`, { duration: 4000 });
           return;
         }
       }
@@ -1733,8 +1947,11 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                             {scanResult.guest.pihak}
                           </span>
                           <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-bold">
-                            Terkonfirmasi: {scanResult.guest.jumlah_hadir_konfirmasi || scanResult.guest.jumlah_tamu} Orang
-                            {scanResult.guest.jatah_tamu ? ` (Jatah: ${scanResult.guest.jatah_tamu})` : ''}
+                            {scanResult.guest.is_divisi ? (
+                              <>🏢 Rombongan: {scanResult.guest.pax_hadir} / {scanResult.guest.kuota_pax || scanResult.guest.jumlah_tamu} Pax Hadir (Sisa: {scanResult.guest.sisa_kuota} Pax)</>
+                            ) : (
+                              <>Terkonfirmasi: {scanResult.guest.jumlah_hadir_konfirmasi || scanResult.guest.jumlah_tamu} Orang {scanResult.guest.jatah_tamu ? `(Jatah: ${scanResult.guest.jatah_tamu})` : ''}</>
+                            )}
                           </span>
                         </div>
                       </div>

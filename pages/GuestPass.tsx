@@ -58,6 +58,10 @@ const GuestPass: React.FC = () => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
+  // Division Guest Pre-Scan Determination (Berapa orang & berapa souvenir yang ditentukan tamu sendiri)
+  const [selectedDivisiPax, setSelectedDivisiPax] = useState<number>(1);
+  const [selectedDivisiSouvenir, setSelectedDivisiSouvenir] = useState<number>(1);
+
   // Confirmation Flow States
   const [isEditingConfirmation, setIsEditingConfirmation] = useState(false);
   const [confirmedPax, setConfirmedPax] = useState<number>(1);
@@ -68,6 +72,61 @@ const GuestPass: React.FC = () => {
   // Attendance celebratory flag
   const [justAttended, setJustAttended] = useState(false);
   const prevAttendedRef = useRef<boolean>(false);
+
+  // Helper untuk membuat QR Code beresolusi tinggi dengan parameter pax / souvenir yang ditentukan tamu
+  const generateQRCodes = async (
+    targetTicket: BukuTamu,
+    paxCount: number,
+    souvenirCount: number
+  ) => {
+    try {
+      const isDiv = Boolean(targetTicket.is_divisi || targetTicket.kategori?.toLowerCase().includes('divisi'));
+      
+      // 1. QR Code Kehadiran (Menyertakan parameter &pax=X yang ditentukan langsung oleh tamu)
+      const checkinPaxParam = isDiv && paxCount > 0 ? `&pax=${paxCount}` : '';
+      const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}${checkinPaxParam}`;
+      const qrUrl1 = await QRCode.toDataURL(checkinUrl, {
+        width: 520,
+        margin: 1.5,
+        color: {
+          dark: '#6B0F1A', // Royal Maroon
+          light: '#FFFFFF'
+        }
+      });
+      setQrKehadiranUrl(qrUrl1);
+
+      // 2. QR Code Souvenir (Menyertakan parameter &count=X yang ditentukan langsung oleh tamu)
+      const souvenirCountParam = isDiv && souvenirCount > 0 ? `&count=${souvenirCount}` : '';
+      const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}&mode=souvenir${souvenirCountParam}`;
+      const qrUrl2 = await QRCode.toDataURL(souvenirUrl, {
+        width: 520,
+        margin: 1.5,
+        color: {
+          dark: '#14532D', // Deep Royal Emerald
+          light: '#FFFFFF'
+        }
+      });
+      setQrSouvenirUrl(qrUrl2);
+    } catch (err) {
+      console.error('Error generating QRs:', err);
+    }
+  };
+
+  // Update qrDataUrl saat tab atau QR URL berubah
+  useEffect(() => {
+    if (activeBarcodeTab === 'souvenir') {
+      if (qrSouvenirUrl) setQrDataUrl(qrSouvenirUrl);
+    } else {
+      if (qrKehadiranUrl) setQrDataUrl(qrKehadiranUrl);
+    }
+  }, [activeBarcodeTab, qrKehadiranUrl, qrSouvenirUrl]);
+
+  // Re-generate QR codes saat pilihan jumlah orang atau souvenir diubah oleh tamu divisi
+  useEffect(() => {
+    if (ticket) {
+      generateQRCodes(ticket, selectedDivisiPax, selectedDivisiSouvenir);
+    }
+  }, [ticket?.ticket_code, ticket?.is_divisi, selectedDivisiPax, selectedDivisiSouvenir]);
 
   // Load ticket if code is in URL
   const fetchTicket = async (code: string) => {
@@ -90,34 +149,27 @@ const GuestPass: React.FC = () => {
         setConfirmedPax(initialConfirmed);
         setGuestUcapan(found.ucapan || '');
 
-        // If ticket was pre-registered by admin and guest has not confirmed yet
+        const isDiv = Boolean(found.is_divisi || found.kategori?.toLowerCase().includes('divisi'));
+
+        // Undangan divisi langsung masuk ke halaman Barcode tanpa form individu
         const isAlreadyConfirmed = Boolean((found as any).is_confirmed || found.attended_at || found.jumlah_hadir_konfirmasi);
-        setIsEditingConfirmation(!isAlreadyConfirmed);
+        setIsEditingConfirmation(isDiv ? false : !isAlreadyConfirmed);
 
-        // 1. Generate QR Code Kehadiran (High Resolution)
-        const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(found.ticket_code)}`;
-        const qrUrl1 = await QRCode.toDataURL(checkinUrl, {
-          width: 520,
-          margin: 1.5,
-          color: {
-            dark: '#6B0F1A', // Royal Maroon
-            light: '#FFFFFF'
-          }
-        });
-        setQrKehadiranUrl(qrUrl1);
-        setQrDataUrl(qrUrl1);
+        // Inisialisasi kuota pax hadir dan souvenir yang dapat dipilih tamu
+        const totalQuota = Number(found.kuota_pax || found.jatah_tamu || found.jumlah_tamu) || 1;
+        const currentHadir = Number(found.pax_hadir || 0);
+        const sisa = found.sisa_kuota !== undefined ? Number(found.sisa_kuota) : Math.max(0, totalQuota - currentHadir);
+        const defaultPax = sisa > 0 ? 1 : 0;
+        setSelectedDivisiPax(defaultPax);
 
-        // 2. Generate QR Code Pengambilan Souvenir (High Resolution)
-        const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(found.ticket_code)}&mode=souvenir`;
-        const qrUrl2 = await QRCode.toDataURL(souvenirUrl, {
-          width: 520,
-          margin: 1.5,
-          color: {
-            dark: '#14532D', // Deep Royal Emerald
-            light: '#FFFFFF'
-          }
-        });
-        setQrSouvenirUrl(qrUrl2);
+        const taken = Number(found.souvenir_taken || 0);
+        const policy = found.souvenir_policy || 'per_pax';
+        const maxSouvenir = policy === 'per_undangan' ? Math.max(0, 1 - taken) : Math.max(0, totalQuota - taken);
+        const defaultSouvenir = maxSouvenir > 0 ? 1 : 0;
+        setSelectedDivisiSouvenir(defaultSouvenir);
+
+        // Generate QR Code awal
+        await generateQRCodes(found, defaultPax, defaultSouvenir);
 
         if (!prevAttendedRef.current && found.is_attended) {
           setJustAttended(true);
@@ -157,19 +209,50 @@ const GuestPass: React.FC = () => {
 
         const updated = Array.isArray(data) ? data[0] : data;
         if (updated) {
-          if (!ticket.is_attended && updated.is_attended) {
-            setTicket(updated);
-            setJustAttended(true);
-            prevAttendedRef.current = true;
-            toast.success('🎉 Kehadiran Anda telah berhasil dikonfirmasi oleh penerima tamu!', {
-              duration: 6000
-            });
-          }
-          if (!ticket.is_souvenir_given && updated.is_souvenir_given) {
-            setTicket(updated);
-            toast.success('🎁 1 Paket Souvenir Anda telah berhasil diambil. Terima kasih!', {
-              duration: 6000
-            });
+          const isDiv = Boolean(updated.is_divisi || updated.kategori?.toLowerCase().includes('divisi'));
+          
+          if (isDiv) {
+            const oldHadir = Number(ticket.pax_hadir || 0);
+            const newHadir = Number(updated.pax_hadir || 0);
+            if (newHadir > oldHadir) {
+              const diff = newHadir - oldHadir;
+              setTicket(updated);
+              setJustAttended(true);
+              toast.success(`🎉 Kehadiran +${diff} Pax rombongan Anda berhasil diverifikasi oleh penerima tamu! Sisa kuota: ${updated.sisa_kuota} Pax.`, {
+                duration: 6000
+              });
+              const remaining = Number(updated.sisa_kuota ?? Math.max(0, (updated.kuota_pax || 1) - newHadir));
+              setSelectedDivisiPax((prev) => Math.min(Math.max(1, prev), Math.max(1, remaining)));
+            }
+
+            const oldTaken = Number(ticket.souvenir_taken || 0);
+            const newTaken = Number(updated.souvenir_taken || 0);
+            if (newTaken > oldTaken) {
+              const diffSv = newTaken - oldTaken;
+              setTicket(updated);
+              toast.success(`🎁 +${diffSv} Paket Souvenir rombongan Anda berhasil diambil. Terima kasih!`, {
+                duration: 6000
+              });
+              const policy = updated.souvenir_policy || 'per_pax';
+              const totalQuota = Number(updated.kuota_pax || updated.jatah_tamu || 1);
+              const maxEntitled = policy === 'per_undangan' ? Math.max(0, 1 - newTaken) : Math.max(0, totalQuota - newTaken);
+              setSelectedDivisiSouvenir((prev) => Math.min(Math.max(1, prev), Math.max(1, maxEntitled)));
+            }
+          } else {
+            if (!ticket.is_attended && updated.is_attended) {
+              setTicket(updated);
+              setJustAttended(true);
+              prevAttendedRef.current = true;
+              toast.success('🎉 Kehadiran Anda telah berhasil dikonfirmasi oleh penerima tamu!', {
+                duration: 6000
+              });
+            }
+            if (!ticket.is_souvenir_given && updated.is_souvenir_given) {
+              setTicket(updated);
+              toast.success('🎁 1 Paket Souvenir Anda telah berhasil diambil. Terima kasih!', {
+                duration: 6000
+              });
+            }
           }
         }
       } catch (err) {
@@ -630,78 +713,339 @@ const GuestPass: React.FC = () => {
               </button>
             </div>
 
-            {/* Live Attended Celebration Notification (Only on Kehadiran Tab) */}
-            {activeBarcodeTab === 'kehadiran' && ticket.is_attended && (
-              <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-5 rounded-2xl shadow-lg border border-emerald-400/30 text-center relative overflow-hidden animate-bounce-short">
-                <div className="absolute -right-4 -bottom-4 text-white/10">
-                  <CheckCircle2 size={120} />
-                </div>
-                <div className="relative z-10">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 backdrop-blur-sm">
-                    <CheckCircle2 size={28} className="text-white" />
-                  </div>
-                  <h3 className="font-serif font-bold text-xl tracking-tight">Kehadiran Dikonfirmasi!</h3>
-                  <p className="text-emerald-50 text-xs mt-1 leading-relaxed">
-                    Alhamdulillah, barcode kehadiran Anda telah berhasil diverifikasi oleh penerima tamu. Selamat menikmati momen bahagia bersama kami.
-                  </p>
-                  {ticket.attended_at && (
-                    <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 bg-black/20 rounded-full text-[11px] font-medium text-emerald-100">
-                      <Clock size={12} />
-                      <span>Check-in: {new Date(ticket.attended_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB</span>
+            {/* KHUSUS UNDANGAN DIVISI: KARTU PENENTUAN JUMLAH PAX / SOUVENIR OLEH TAMU */}
+            {ticket.is_divisi ? (
+              <div className="animate-fade-in space-y-3">
+                {activeBarcodeTab === 'kehadiran' ? (
+                  <div className="bg-gradient-to-br from-amber-50 via-white to-amber-50/60 p-5 rounded-3xl border-2 border-amber-300 shadow-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <div className="w-10 h-10 rounded-2xl bg-maroon text-gold flex items-center justify-center font-bold text-xs shadow-sm">
+                          <Users size={20} />
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-maroon tracking-wider block">
+                            Undangan Rombongan Divisi
+                          </span>
+                          <h4 className="font-serif font-bold text-base text-stone-900 leading-tight">
+                            Berapa orang hadir bersama Anda?
+                          </h4>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-stone-500 tracking-wider block">
+                          Sisa Kuota
+                        </span>
+                        <span className="font-serif font-bold text-base text-amber-900">
+                          {ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0))} Pax
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
 
-            {/* Waiting Check-in Notification (Only on Kehadiran Tab) */}
-            {activeBarcodeTab === 'kehadiran' && !ticket.is_attended && (
-              <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-4 text-center">
-                <div className="flex items-center justify-center space-x-2 text-amber-900 font-semibold text-xs tracking-wide">
-                  <span className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
-                  <span>Tunjukkan Barcode Ini di Meja Penerima Tamu</span>
-                </div>
-                <p className="text-[11px] text-stone-500 mt-1">
-                  Halaman ini akan otomatis terupdate saat barcode kehadiran Anda discan oleh petugas.
-                </p>
-              </div>
-            )}
+                    {/* Sisa kuota check */}
+                    {(ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0))) <= 0 ? (
+                      <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-center text-xs font-bold text-rose-800">
+                        ⚠️ Seluruh kuota rombongan divisi ({ticket.kuota_pax || ticket.jumlah_tamu} Pax) telah hadir.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between bg-white p-2.5 rounded-2xl border border-gold-300 shadow-sm">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDivisiPax((p) => Math.max(1, p - 1))}
+                            disabled={selectedDivisiPax <= 1}
+                            className="w-11 h-11 rounded-xl bg-stone-100 hover:bg-stone-200 text-maroon font-bold text-xl flex items-center justify-center disabled:opacity-30 cursor-pointer transition-colors active:scale-95"
+                            title="Kurang 1 orang"
+                          >
+                            -
+                          </button>
 
-            {/* Souvenir Claimed Notification (Only on Souvenir Tab) */}
-            {activeBarcodeTab === 'souvenir' && ticket.is_souvenir_given && (
-              <div className="bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-800 text-white p-5 rounded-2xl shadow-lg border border-emerald-400/30 text-center relative overflow-hidden animate-bounce-short">
-                <div className="absolute -right-4 -bottom-4 text-white/10">
-                  <Gift size={120} />
-                </div>
-                <div className="relative z-10">
-                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 backdrop-blur-sm">
-                    <CheckCircle2 size={28} className="text-white" />
+                          <div className="text-center">
+                            <div className="flex items-center justify-center space-x-1.5">
+                              <span className="font-serif text-3xl font-black text-maroon">
+                                {selectedDivisiPax}
+                              </span>
+                              <span className="text-xs font-bold uppercase text-stone-600">
+                                Pax / Orang
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-stone-500 font-medium block">
+                              {selectedDivisiPax === 1 
+                                ? 'Saya hadir sendiri' 
+                                : `Saya hadir bersama ${selectedDivisiPax - 1} rekan rombongan`}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const sisa = ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0));
+                              setSelectedDivisiPax((p) => Math.min(sisa, p + 1));
+                            }}
+                            disabled={selectedDivisiPax >= (ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0)))}
+                            className="w-11 h-11 rounded-xl bg-stone-100 hover:bg-stone-200 text-maroon font-bold text-xl flex items-center justify-center disabled:opacity-30 cursor-pointer transition-colors active:scale-95"
+                            title="Tambah 1 orang"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        {/* Quick Option Pills */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                          <span className="text-[10px] text-stone-400 font-bold uppercase mr-1">
+                            Pilihan Cepat:
+                          </span>
+                          {(() => {
+                            const sisa = ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0));
+                            return [1, 2, 3, 4, 5, 10]
+                              .filter((n) => n <= sisa)
+                              .map((num) => (
+                                <button
+                                  key={num}
+                                  type="button"
+                                  onClick={() => setSelectedDivisiPax(num)}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                                    selectedDivisiPax === num
+                                      ? 'bg-maroon text-gold border-gold shadow-sm ring-1 ring-gold'
+                                      : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                                  }`}
+                                >
+                                  {num} Pax
+                                </button>
+                              ));
+                          })()}
+                          {(() => {
+                            const sisa = ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0));
+                            if (sisa > 1) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedDivisiPax(sisa)}
+                                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                                    selectedDivisiPax === sisa
+                                      ? 'bg-emerald-700 text-white border-emerald-800 shadow-sm'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                  }`}
+                                >
+                                  Semua Rombongan ({sisa} Pax)
+                                </button>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
+
+                        <div className="p-2.5 bg-amber-100/70 rounded-xl border border-amber-300/80 text-[11px] text-amber-950 text-center font-medium">
+                          ⚡ Barcode di bawah <strong>otomatis disiapkan untuk check-in {selectedDivisiPax} Pax</strong>. Petugas penerima tamu akan langsung memindai tanpa perlu menentukan jumlahnya lagi.
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <h3 className="font-serif font-bold text-xl tracking-tight">Souvenir Sudah Diterima!</h3>
-                  <p className="text-emerald-50 text-xs mt-1 leading-relaxed">
-                    Terima kasih telah hadir dan merayakan hari bahagia kami. Semoga berkenan dengan souvenir kenang-kenangan ini.
-                  </p>
-                  {ticket.souvenir_given_at && (
-                    <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 bg-black/20 rounded-full text-[11px] font-medium text-emerald-100">
-                      <Clock size={12} />
-                      <span>Diserahkan: {new Date(ticket.souvenir_given_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+                ) : (
+                  <div className="bg-gradient-to-br from-purple-50 via-white to-purple-50/60 p-5 rounded-3xl border-2 border-purple-300 shadow-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <div className="w-10 h-10 rounded-2xl bg-purple-700 text-purple-100 flex items-center justify-center font-bold text-xs shadow-sm">
+                          <Gift size={20} />
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-purple-800 tracking-wider block">
+                            Souvenir Divisi / Kelompok
+                          </span>
+                          <h4 className="font-serif font-bold text-base text-stone-900 leading-tight">
+                            Berapa paket souvenir yang diambil?
+                          </h4>
+                        </div>
+                      </div>
 
-            {/* Waiting Souvenir Notification (Only on Souvenir Tab) */}
-            {activeBarcodeTab === 'souvenir' && !ticket.is_souvenir_given && (
-              <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-2xl p-4 text-center shadow-md">
-                <div className="flex items-center justify-center space-x-2 font-bold text-xs tracking-wide">
-                  <Gift size={16} className="text-amber-200 animate-bounce" />
-                  <span>Kupon 1 Paket Souvenir Siap Ditukarkan</span>
-                </div>
-                <p className="text-[11px] text-amber-100 mt-1">
-                  Tunjukkan barcode souvenir ini kepada petugas meja souvenir untuk mengambil paket souvenir keluarga Anda.
-                </p>
+                      <div className="text-right">
+                        <span className="text-[10px] uppercase font-bold text-stone-500 tracking-wider block">
+                          Hak Tersedia
+                        </span>
+                        {(() => {
+                          const policy = ticket.souvenir_policy || 'per_pax';
+                          const taken = Number(ticket.souvenir_taken || 0);
+                          const totalQuota = Number(ticket.kuota_pax || ticket.jumlah_tamu) || 1;
+                          const maxEntitled = policy === 'per_undangan'
+                            ? Math.max(0, 1 - taken)
+                            : Math.max(0, totalQuota - taken);
+                          return (
+                            <span className="font-serif font-bold text-base text-purple-900">
+                              {maxEntitled} Paket
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    {(() => {
+                      const policy = ticket.souvenir_policy || 'per_pax';
+                      const taken = Number(ticket.souvenir_taken || 0);
+                      const totalQuota = Number(ticket.kuota_pax || ticket.jumlah_tamu) || 1;
+                      const maxEntitled = policy === 'per_undangan'
+                        ? Math.max(0, 1 - taken)
+                        : Math.max(0, totalQuota - taken);
+
+                      if (maxEntitled <= 0) {
+                        return (
+                          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-center text-xs font-bold text-emerald-800">
+                            ✓ Seluruh paket souvenir untuk rombongan divisi ini telah selesai diambil ({taken} Paket).
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between bg-white p-2.5 rounded-2xl border border-purple-300 shadow-sm">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedDivisiSouvenir((p) => Math.max(1, p - 1))}
+                              disabled={selectedDivisiSouvenir <= 1}
+                              className="w-11 h-11 rounded-xl bg-stone-100 hover:bg-stone-200 text-purple-900 font-bold text-xl flex items-center justify-center disabled:opacity-30 cursor-pointer transition-colors active:scale-95"
+                              title="Kurang 1 paket"
+                            >
+                              -
+                            </button>
+
+                            <div className="text-center">
+                              <div className="flex items-center justify-center space-x-1.5">
+                                <span className="font-serif text-3xl font-black text-purple-900">
+                                  {selectedDivisiSouvenir}
+                                </span>
+                                <span className="text-xs font-bold uppercase text-stone-600">
+                                  Paket Souvenir
+                                </span>
+                              </div>
+                              <span className="text-[11px] text-stone-500 font-medium block">
+                                {ticket.souvenir_policy === 'per_undangan'
+                                  ? '1 paket simbolis untuk rombongan'
+                                  : `Diambil untuk ${selectedDivisiSouvenir} orang anggota`}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedDivisiSouvenir((p) => Math.min(maxEntitled, p + 1))}
+                              disabled={selectedDivisiSouvenir >= maxEntitled}
+                              className="w-11 h-11 rounded-xl bg-stone-100 hover:bg-stone-200 text-purple-900 font-bold text-xl flex items-center justify-center disabled:opacity-30 cursor-pointer transition-colors active:scale-95"
+                              title="Tambah 1 paket"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          {/* Quick Option Pills */}
+                          {maxEntitled > 1 && (
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                              <span className="text-[10px] text-stone-400 font-bold uppercase mr-1">
+                                Pilihan Cepat:
+                              </span>
+                              {[1, 2, 3, 4, 5, 10]
+                                .filter((n) => n <= maxEntitled)
+                                .map((num) => (
+                                  <button
+                                    key={num}
+                                    type="button"
+                                    onClick={() => setSelectedDivisiSouvenir(num)}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                                      selectedDivisiSouvenir === num
+                                        ? 'bg-purple-800 text-white border-purple-900 shadow-sm'
+                                        : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                                    }`}
+                                  >
+                                    {num} Paket
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+
+                          <div className="p-2.5 bg-purple-100/70 rounded-xl border border-purple-200/80 text-[11px] text-purple-900 text-center font-medium">
+                            ⚡ Barcode souvenir di bawah <strong>otomatis disiapkan untuk klaim {selectedDivisiSouvenir} Paket</strong>.
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
+            ) : (
+              /* TAMPILAN NOTIFIKASI UNTUK TAMU INDIVIDU / KELUARGA BIASA */
+              <>
+                {/* Live Attended Celebration Notification (Only on Kehadiran Tab) */}
+                {activeBarcodeTab === 'kehadiran' && ticket.is_attended && (
+                  <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-5 rounded-2xl shadow-lg border border-emerald-400/30 text-center relative overflow-hidden animate-bounce-short">
+                    <div className="absolute -right-4 -bottom-4 text-white/10">
+                      <CheckCircle2 size={120} />
+                    </div>
+                    <div className="relative z-10">
+                      <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 backdrop-blur-sm">
+                        <CheckCircle2 size={28} className="text-white" />
+                      </div>
+                      <h3 className="font-serif font-bold text-xl tracking-tight">Kehadiran Dikonfirmasi!</h3>
+                      <p className="text-emerald-50 text-xs mt-1 leading-relaxed">
+                        Alhamdulillah, barcode kehadiran Anda telah berhasil diverifikasi oleh penerima tamu. Selamat menikmati momen bahagia bersama kami.
+                      </p>
+                      {ticket.attended_at && (
+                        <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 bg-black/20 rounded-full text-[11px] font-medium text-emerald-100">
+                          <Clock size={12} />
+                          <span>Check-in: {new Date(ticket.attended_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Waiting Check-in Notification (Only on Kehadiran Tab) */}
+                {activeBarcodeTab === 'kehadiran' && !ticket.is_attended && (
+                  <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-4 text-center">
+                    <div className="flex items-center justify-center space-x-2 text-amber-900 font-semibold text-xs tracking-wide">
+                      <span className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
+                      <span>Tunjukkan Barcode Ini di Meja Penerima Tamu</span>
+                    </div>
+                    <p className="text-[11px] text-stone-500 mt-1">
+                      Halaman ini akan otomatis terupdate saat barcode kehadiran Anda discan oleh petugas.
+                    </p>
+                  </div>
+                )}
+
+                {/* Souvenir Claimed Notification (Only on Souvenir Tab) */}
+                {activeBarcodeTab === 'souvenir' && ticket.is_souvenir_given && (
+                  <div className="bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-800 text-white p-5 rounded-2xl shadow-lg border border-emerald-400/30 text-center relative overflow-hidden animate-bounce-short">
+                    <div className="absolute -right-4 -bottom-4 text-white/10">
+                      <Gift size={120} />
+                    </div>
+                    <div className="relative z-10">
+                      <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-2 backdrop-blur-sm">
+                        <CheckCircle2 size={28} className="text-white" />
+                      </div>
+                      <h3 className="font-serif font-bold text-xl tracking-tight">Souvenir Sudah Diterima!</h3>
+                      <p className="text-emerald-50 text-xs mt-1 leading-relaxed">
+                        Terima kasih telah hadir dan merayakan hari bahagia kami. Semoga berkenan dengan souvenir kenang-kenangan ini.
+                      </p>
+                      {ticket.souvenir_given_at && (
+                        <div className="inline-flex items-center space-x-1.5 mt-3 px-3 py-1 bg-black/20 rounded-full text-[11px] font-medium text-emerald-100">
+                          <Clock size={12} />
+                          <span>Diserahkan: {new Date(ticket.souvenir_given_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Waiting Souvenir Notification (Only on Souvenir Tab) */}
+                {activeBarcodeTab === 'souvenir' && !ticket.is_souvenir_given && (
+                  <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-2xl p-4 text-center shadow-md">
+                    <div className="flex items-center justify-center space-x-2 font-bold text-xs tracking-wide">
+                      <Gift size={16} className="text-amber-200 animate-bounce" />
+                      <span>Kupon 1 Paket Souvenir Siap Ditukarkan</span>
+                    </div>
+                    <p className="text-[11px] text-amber-100 mt-1">
+                      Tunjukkan barcode souvenir ini kepada petugas meja souvenir untuk mengambil paket souvenir keluarga Anda.
+                    </p>
+                  </div>
+                )}
+              </>
             )}
 
             {/* THE WEDDING PASS CARD */}
@@ -771,6 +1115,27 @@ const GuestPass: React.FC = () => {
                   >
                     {copiedCode ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
                   </button>
+                </div>
+
+                {/* Status Siap Scan Badge */}
+                <div className="pt-2">
+                  <div className={`inline-flex items-center space-x-2 px-4 py-1.5 rounded-full border text-xs font-bold shadow-xs ${
+                    activeBarcodeTab === 'souvenir'
+                      ? 'bg-purple-100 text-purple-950 border-purple-300'
+                      : 'bg-amber-100 text-amber-950 border-amber-300'
+                  }`}>
+                    {activeBarcodeTab === 'souvenir' ? (
+                      <>
+                        <Gift size={14} className="text-purple-700" />
+                        <span>Siap Klaim: <strong>{ticket.is_divisi ? selectedDivisiSouvenir : 1} Paket Souvenir</strong></span>
+                      </>
+                    ) : (
+                      <>
+                        <Users size={14} className="text-maroon" />
+                        <span>Siap Check-in: <strong>{ticket.is_divisi ? selectedDivisiPax : (ticket.jumlah_hadir_konfirmasi || 1)} Pax</strong></span>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Download QR Button (Highlight) */}
@@ -1188,6 +1553,22 @@ const GuestPass: React.FC = () => {
             <div className="font-mono font-bold text-base text-[#6B0F1A] bg-stone-100 py-1.5 px-4 rounded-full inline-block">
               {activeBarcodeTab === 'souvenir' ? `SV-${ticket.ticket_code}` : ticket.ticket_code}
             </div>
+
+            {ticket.is_divisi && (
+              <div className="block pt-1">
+                <span className={`inline-flex items-center space-x-1.5 px-4 py-1.5 rounded-full font-bold text-xs border ${
+                  activeBarcodeTab === 'souvenir'
+                    ? 'bg-purple-100 text-purple-950 border-purple-300'
+                    : 'bg-amber-100 text-amber-950 border-amber-300'
+                }`}>
+                  {activeBarcodeTab === 'souvenir' ? (
+                    <span>🎁 Pengambilan: <strong>{selectedDivisiSouvenir} Paket Souvenir</strong></span>
+                  ) : (
+                    <span>👥 Check-in: <strong>{selectedDivisiPax} Pax Rombongan</strong></span>
+                  )}
+                </span>
+              </div>
+            )}
 
             <p className="text-xs text-stone-500 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
               💡 <strong>Tips:</strong> Tingkatkan kecerahan layar HP ke maksimal agar mudah dibaca oleh sensor kamera penerima tamu.

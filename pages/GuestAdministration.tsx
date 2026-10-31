@@ -480,18 +480,20 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
       setPreviewTab('kehadiran');
       const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(guest.ticket_code)}`;
       const urlKehadiran = await QRCode.toDataURL(checkinUrl, {
-        width: 360,
+        width: 380,
         margin: 2,
-        color: { dark: '#6B0F1A', light: '#FFFFFF' }
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: '#FFFFFF' }
       });
       setPreviewQrKehadiran(urlKehadiran);
       setPreviewQrUrl(urlKehadiran);
 
       const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(guest.ticket_code)}&mode=souvenir`;
       const urlSouvenir = await QRCode.toDataURL(souvenirUrl, {
-        width: 360,
+        width: 380,
         margin: 2,
-        color: { dark: '#14532D', light: '#FFFFFF' }
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: '#FFFFFF' }
       });
       setPreviewQrSouvenir(urlSouvenir);
     } catch (err) {

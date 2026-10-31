@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import QRCode from 'qrcode';
 import { 
   Camera, 
@@ -195,6 +195,10 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
         clean = last;
       }
     }
+    // Clean query parameters if appended directly (e.g., FN-XXXXXX?pax=2 or FN-XXXXXX&pax=2)
+    if (clean.includes('?') || clean.includes('&')) {
+      clean = clean.split(/[?&]/)[0];
+    }
     if (clean.toUpperCase().startsWith('SV-')) {
       clean = clean.substring(3);
     }
@@ -204,7 +208,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
   // Helper untuk mengekstrak jumlah pax / count dari URL atau parameter teks barcode
   const extractPax = (raw: string): number | null => {
     if (!raw) return null;
-    const match = raw.match(/[?&](?:pax|count)=(\d+)/i);
+    const match = raw.match(/(?:[?&;]|^)(?:pax|count)=(\d+)/i);
     if (match && match[1]) {
       const parsed = parseInt(match[1], 10);
       return isNaN(parsed) ? null : parsed;
@@ -614,7 +618,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     } finally {
       setTimeout(() => {
         isProcessingRef.current = false;
-      }, 2500);
+      }, 1200);
     }
   };
 
@@ -963,7 +967,8 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
       const urlKehadiran = await QRCode.toDataURL(checkinUrl, {
         width: 380,
         margin: 2,
-        color: { dark: '#6B0F1A', light: '#FFFFFF' }
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: '#FFFFFF' }
       });
       setPreviewQrKehadiran(urlKehadiran);
       setPreviewQrUrl(urlKehadiran);
@@ -972,7 +977,8 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
       const urlSouvenir = await QRCode.toDataURL(souvenirUrl, {
         width: 380,
         margin: 2,
-        color: { dark: '#14532D', light: '#FFFFFF' }
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: '#FFFFFF' }
       });
       setPreviewQrSouvenir(urlSouvenir);
     } catch (err) {
@@ -1012,6 +1018,8 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
 
         try {
           const html5QrCode = new Html5Qrcode('scanner-modal-reader', {
+            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+            useBarCodeDetectorIfSupported: true,
             experimentalFeatures: {
               useBarCodeDetectorIfSupported: true
             },
@@ -1023,19 +1031,43 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
             ? selectedCameraId
             : { facingMode: 'environment' };
 
-          await html5QrCode.start(
-            cameraConfig,
-            {
-              fps: 15
-              // Omit qrbox to allow scanning anywhere across the entire camera view
-            },
-            (decodedText) => {
-              if (isMounted && !isProcessingRef.current) {
-                handleProcessScan(decodedText);
-              }
-            },
-            () => {}
-          );
+          try {
+            await html5QrCode.start(
+              cameraConfig,
+              {
+                fps: 25,
+                videoConstraints: selectedCameraId
+                  ? {
+                      deviceId: { exact: selectedCameraId },
+                      width: { min: 640, ideal: 1280, max: 1920 },
+                      height: { min: 480, ideal: 720, max: 1080 }
+                    }
+                  : {
+                      facingMode: { ideal: 'environment' },
+                      width: { min: 640, ideal: 1280, max: 1920 },
+                      height: { min: 480, ideal: 720, max: 1080 }
+                    }
+              },
+              (decodedText) => {
+                if (isMounted && !isProcessingRef.current) {
+                  handleProcessScan(decodedText);
+                }
+              },
+              () => {}
+            );
+          } catch (highResErr) {
+            console.warn('Fallback to standard resolution camera config:', highResErr);
+            await html5QrCode.start(
+              cameraConfig,
+              { fps: 25 },
+              (decodedText) => {
+                if (isMounted && !isProcessingRef.current) {
+                  handleProcessScan(decodedText);
+                }
+              },
+              () => {}
+            );
+          }
         } catch (err: any) {
           console.warn('Failed to start camera in modal:', err);
           if (isMounted) {
@@ -1977,7 +2009,10 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                       )}
 
                       <button
-                        onClick={() => setScanResult(null)}
+                        onClick={() => {
+                          setScanResult(null);
+                          isProcessingRef.current = false;
+                        }}
                         className="px-4 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs hover:bg-maroon-800 shadow-md shrink-0 uppercase tracking-wider cursor-pointer"
                       >
                         Lanjutkan
@@ -2043,7 +2078,10 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                     <div className="flex items-center space-x-2 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-200">
                       <button
                         type="button"
-                        onClick={() => setSouvenirScanResult(null)}
+                        onClick={() => {
+                          setSouvenirScanResult(null);
+                          isProcessingRef.current = false;
+                        }}
                         className="px-4 py-2.5 rounded-xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs shadow-md transition-all cursor-pointer"
                       >
                         Lanjut Scan Berikutnya
@@ -2061,8 +2099,8 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                   <Info size={14} className="text-gold" />
                   <span>Deteksi barcode bebas di seluruh layar (jarak ideal: <strong>15–25 cm</strong>).</span>
                 </span>
-                <span className="text-stone-500 font-mono text-[11px]">
-                  Sensor: 15 FPS • GPU Active
+                <span className="text-gold/90 font-mono text-[11px] font-bold">
+                  Sensor: 25 FPS (Ultra-Fast) • Native AI/GPU Active
                 </span>
               </div>
 

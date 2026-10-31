@@ -625,9 +625,10 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       const ticketCode = guest.ticket_code || `FN-${guest.id.substring(0, 6).toUpperCase()}`;
       const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(ticketCode)}`;
       const url = await QRCode.toDataURL(checkinUrl, {
-        width: 340,
+        width: 380,
         margin: 2,
-        color: { dark: '#800000', light: '#FFFFFF' }
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: '#FFFFFF' }
       });
       setPreviewQrUrl(url);
     } catch (err) {

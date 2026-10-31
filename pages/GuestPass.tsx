@@ -83,13 +83,15 @@ const GuestPass: React.FC = () => {
       const isDiv = Boolean(targetTicket.is_divisi || targetTicket.kategori?.toLowerCase().includes('divisi'));
       
       // 1. QR Code Kehadiran (Menyertakan parameter &pax=X yang ditentukan langsung oleh tamu)
+      // Menggunakan Pitch Black (#000000) dan errorCorrectionLevel 'L' agar blok QR berukuran besar dan kontras 100% sehingga sensor kamera scanner membacanya instan
       const checkinPaxParam = isDiv && paxCount > 0 ? `&pax=${paxCount}` : '';
       const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}${checkinPaxParam}`;
       const qrUrl1 = await QRCode.toDataURL(checkinUrl, {
-        width: 520,
-        margin: 1.5,
+        width: 560,
+        margin: 2,
+        errorCorrectionLevel: 'L',
         color: {
-          dark: '#6B0F1A', // Royal Maroon
+          dark: '#000000', // Pitch Black (Kontras maksimum terhadap backlight layar HP)
           light: '#FFFFFF'
         }
       });
@@ -99,10 +101,11 @@ const GuestPass: React.FC = () => {
       const souvenirCountParam = isDiv && souvenirCount > 0 ? `&count=${souvenirCount}` : '';
       const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}&mode=souvenir${souvenirCountParam}`;
       const qrUrl2 = await QRCode.toDataURL(souvenirUrl, {
-        width: 520,
-        margin: 1.5,
+        width: 560,
+        margin: 2,
+        errorCorrectionLevel: 'L',
         color: {
-          dark: '#14532D', // Deep Royal Emerald
+          dark: '#000000', // Pitch Black (Kontras maksimum terhadap backlight layar HP)
           light: '#FFFFFF'
         }
       });

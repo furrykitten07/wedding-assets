@@ -62,6 +62,14 @@ const GuestPass: React.FC = () => {
   const [selectedDivisiPax, setSelectedDivisiPax] = useState<number>(1);
   const [selectedDivisiSouvenir, setSelectedDivisiSouvenir] = useState<number>(1);
 
+  // Division Confirm-Before-Show Barcode States (Mencegah scan premature dan double scan)
+  const [isDivisiPaxConfirmed, setIsDivisiPaxConfirmed] = useState<boolean>(false);
+  const [isDivisiSouvenirConfirmed, setIsDivisiSouvenirConfirmed] = useState<boolean>(false);
+  const [activeKloterReqId, setActiveKloterReqId] = useState<string>('');
+  const [activeSouvenirReqId, setActiveSouvenirReqId] = useState<string>('');
+  const [lastScannedKloter, setLastScannedKloter] = useState<{ pax: number; time: string } | null>(null);
+  const [lastScannedSouvenir, setLastScannedSouvenir] = useState<{ count: number; time: string } | null>(null);
+
   // Confirmation Flow States
   const [isEditingConfirmation, setIsEditingConfirmation] = useState(false);
   const [confirmedPax, setConfirmedPax] = useState<number>(1);
@@ -77,15 +85,18 @@ const GuestPass: React.FC = () => {
   const generateQRCodes = async (
     targetTicket: BukuTamu,
     paxCount: number,
-    souvenirCount: number
+    souvenirCount: number,
+    reqIdKehadiran?: string,
+    reqIdSouvenir?: string
   ) => {
     try {
       const isDiv = Boolean(targetTicket.is_divisi || targetTicket.kategori?.toLowerCase().includes('divisi'));
       
-      // 1. QR Code Kehadiran (Menyertakan parameter &pax=X yang ditentukan langsung oleh tamu)
+      // 1. QR Code Kehadiran (Menyertakan parameter &pax=X dan &req=... yang ditentukan langsung oleh tamu)
       // Menggunakan Pitch Black (#000000) dan errorCorrectionLevel 'L' agar blok QR berukuran besar dan kontras 100% sehingga sensor kamera scanner membacanya instan
       const checkinPaxParam = isDiv && paxCount > 0 ? `&pax=${paxCount}` : '';
-      const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}${checkinPaxParam}`;
+      const reqParam = isDiv && reqIdKehadiran ? `&req=${reqIdKehadiran}` : '';
+      const checkinUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}${checkinPaxParam}${reqParam}`;
       const qrUrl1 = await QRCode.toDataURL(checkinUrl, {
         width: 560,
         margin: 2,
@@ -97,9 +108,10 @@ const GuestPass: React.FC = () => {
       });
       setQrKehadiranUrl(qrUrl1);
 
-      // 2. QR Code Souvenir (Menyertakan parameter &count=X yang ditentukan langsung oleh tamu)
+      // 2. QR Code Souvenir (Menyertakan parameter &count=X dan &req=... yang ditentukan langsung oleh tamu)
       const souvenirCountParam = isDiv && souvenirCount > 0 ? `&count=${souvenirCount}` : '';
-      const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}&mode=souvenir${souvenirCountParam}`;
+      const reqSouvenirParam = isDiv && reqIdSouvenir ? `&req=${reqIdSouvenir}` : '';
+      const souvenirUrl = `${window.location.origin}/#/checkin?code=${encodeURIComponent(targetTicket.ticket_code)}&mode=souvenir${souvenirCountParam}${reqSouvenirParam}`;
       const qrUrl2 = await QRCode.toDataURL(souvenirUrl, {
         width: 560,
         margin: 2,
@@ -115,6 +127,52 @@ const GuestPass: React.FC = () => {
     }
   };
 
+  // Handler Konfirmasi Jumlah Pax oleh Tamu Divisi sebelum Barcode Dimunculkan
+  const handleConfirmDivisiPax = () => {
+    const newReqId = `K${Date.now().toString(36).toUpperCase()}`;
+    setActiveKloterReqId(newReqId);
+    setIsDivisiPaxConfirmed(true);
+    setLastScannedKloter(null);
+    if (ticket) {
+      generateQRCodes(ticket, selectedDivisiPax, selectedDivisiSouvenir, newReqId, activeSouvenirReqId);
+    }
+    toast.success(`Barcode siap untuk ${selectedDivisiPax} Pax! Silakan tunjukkan ke petugas resepsi.`, {
+      icon: '🎫',
+      duration: 4000
+    });
+    setTimeout(() => {
+      const barcodeEl = document.getElementById('wedding-pass-barcode-section');
+      if (barcodeEl) barcodeEl.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  const handleEditDivisiPax = () => {
+    setIsDivisiPaxConfirmed(false);
+  };
+
+  // Handler Konfirmasi Jumlah Souvenir oleh Tamu Divisi sebelum Barcode Dimunculkan
+  const handleConfirmDivisiSouvenir = () => {
+    const newReqId = `S${Date.now().toString(36).toUpperCase()}`;
+    setActiveSouvenirReqId(newReqId);
+    setIsDivisiSouvenirConfirmed(true);
+    setLastScannedSouvenir(null);
+    if (ticket) {
+      generateQRCodes(ticket, selectedDivisiPax, selectedDivisiSouvenir, activeKloterReqId, newReqId);
+    }
+    toast.success(`Barcode Souvenir siap untuk ${selectedDivisiSouvenir} Paket! Silakan tunjukkan ke petugas souvenir.`, {
+      icon: '🎁',
+      duration: 4000
+    });
+    setTimeout(() => {
+      const barcodeEl = document.getElementById('wedding-pass-barcode-section');
+      if (barcodeEl) barcodeEl.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  const handleEditDivisiSouvenir = () => {
+    setIsDivisiSouvenirConfirmed(false);
+  };
+
   // Update qrDataUrl saat tab atau QR URL berubah
   useEffect(() => {
     if (activeBarcodeTab === 'souvenir') {
@@ -124,12 +182,12 @@ const GuestPass: React.FC = () => {
     }
   }, [activeBarcodeTab, qrKehadiranUrl, qrSouvenirUrl]);
 
-  // Re-generate QR codes saat pilihan jumlah orang atau souvenir diubah oleh tamu divisi
+  // Re-generate QR codes saat tiket pertama kali dimuat (atau untuk tiket non-divisi)
   useEffect(() => {
-    if (ticket) {
+    if (ticket && !ticket.is_divisi) {
       generateQRCodes(ticket, selectedDivisiPax, selectedDivisiSouvenir);
     }
-  }, [ticket?.ticket_code, ticket?.is_divisi, selectedDivisiPax, selectedDivisiSouvenir]);
+  }, [ticket?.ticket_code, ticket?.is_divisi]);
 
   // Load ticket if code is in URL
   const fetchTicket = async (code: string) => {
@@ -221,11 +279,18 @@ const GuestPass: React.FC = () => {
               const diff = newHadir - oldHadir;
               setTicket(updated);
               setJustAttended(true);
+              // KUNCI PENTING: Begitu ter-scan, barcode otomatis ditutup & di-expire untuk mencegah scan berulang!
+              setIsDivisiPaxConfirmed(false);
+              setActiveKloterReqId('');
+              setLastScannedKloter({
+                pax: diff,
+                time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+              });
               toast.success(`🎉 Kehadiran +${diff} Pax rombongan Anda berhasil diverifikasi oleh penerima tamu! Sisa kuota: ${updated.sisa_kuota} Pax.`, {
                 duration: 6000
               });
               const remaining = Number(updated.sisa_kuota ?? Math.max(0, (updated.kuota_pax || 1) - newHadir));
-              setSelectedDivisiPax((prev) => Math.min(Math.max(1, prev), Math.max(1, remaining)));
+              setSelectedDivisiPax(remaining > 0 ? 1 : 0);
             }
 
             const oldTaken = Number(ticket.souvenir_taken || 0);
@@ -233,13 +298,20 @@ const GuestPass: React.FC = () => {
             if (newTaken > oldTaken) {
               const diffSv = newTaken - oldTaken;
               setTicket(updated);
+              // KUNCI PENTING: Begitu souvenir ter-scan, barcode souvenir ditutup & di-expire!
+              setIsDivisiSouvenirConfirmed(false);
+              setActiveSouvenirReqId('');
+              setLastScannedSouvenir({
+                count: diffSv,
+                time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+              });
               toast.success(`🎁 +${diffSv} Paket Souvenir rombongan Anda berhasil diambil. Terima kasih!`, {
                 duration: 6000
               });
               const policy = updated.souvenir_policy || 'per_pax';
               const totalQuota = Number(updated.kuota_pax || updated.jatah_tamu || 1);
               const maxEntitled = policy === 'per_undangan' ? Math.max(0, 1 - newTaken) : Math.max(0, totalQuota - newTaken);
-              setSelectedDivisiSouvenir((prev) => Math.min(Math.max(1, prev), Math.max(1, maxEntitled)));
+              setSelectedDivisiSouvenir(maxEntitled > 0 ? 1 : 0);
             }
           } else {
             if (!ticket.is_attended && updated.is_attended) {
@@ -716,11 +788,85 @@ const GuestPass: React.FC = () => {
               </button>
             </div>
 
+            {/* KHUSUS UNDANGAN DIVISI: NOTIFIKASI SUKSES SETELAH SCAN (MENCEGAH DOBEL SCAN) */}
+            {ticket.is_divisi && activeBarcodeTab === 'kehadiran' && lastScannedKloter && (
+              <div className="bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-800 text-white p-6 rounded-3xl text-center space-y-3 shadow-xl border border-emerald-400/40 animate-fade-in relative overflow-hidden">
+                <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto backdrop-blur-sm shadow-inner">
+                  <CheckCircle2 size={32} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-xl">Check-in Kloter (+{lastScannedKloter.pax} Pax) Sukses!</h3>
+                  <p className="text-xs text-emerald-100 mt-1 max-w-sm mx-auto leading-relaxed">
+                    Barcode kloter Anda telah berhasil dipindai oleh petugas penerima tamu pada pukul <strong>{lastScannedKloter.time} WIB</strong>. Barcode telah diselesaikan dan dinonaktifkan untuk mencegah dobel scan.
+                  </p>
+                </div>
+                {((ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0)))) > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLastScannedKloter(null);
+                      setIsDivisiPaxConfirmed(false);
+                      setSelectedDivisiPax(1);
+                    }}
+                    className="px-5 py-2.5 rounded-xl bg-white text-emerald-950 font-bold text-xs shadow-md hover:bg-emerald-50 transition-all inline-flex items-center space-x-1.5 cursor-pointer active:scale-95"
+                  >
+                    <Plus size={15} />
+                    <span>Siapkan Barcode untuk Kloter Berikutnya (Sisa: {ticket.sisa_kuota} Pax)</span>
+                  </button>
+                ) : (
+                  <div className="inline-block px-4 py-1.5 rounded-full bg-black/20 text-emerald-100 text-xs font-semibold">
+                    ✓ Seluruh Kuota Rombongan Telah Hadir
+                  </div>
+                )}
+              </div>
+            )}
+
+            {ticket.is_divisi && activeBarcodeTab === 'souvenir' && lastScannedSouvenir && (
+              <div className="bg-gradient-to-r from-purple-700 via-purple-800 to-indigo-900 text-white p-6 rounded-3xl text-center space-y-3 shadow-xl border border-purple-400/40 animate-fade-in relative overflow-hidden">
+                <div className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center mx-auto backdrop-blur-sm shadow-inner">
+                  <Gift size={32} className="text-white" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-xl">Pengambilan {lastScannedSouvenir.count} Paket Souvenir Sukses!</h3>
+                  <p className="text-xs text-purple-100 mt-1 max-w-sm mx-auto leading-relaxed">
+                    Kupon souvenir telah berhasil diverifikasi oleh petugas pada pukul <strong>{lastScannedSouvenir.time} WIB</strong>. Barcode telah diselesaikan untuk mencegah pengambilan ganda.
+                  </p>
+                </div>
+                {(() => {
+                  const policy = ticket.souvenir_policy || 'per_pax';
+                  const taken = Number(ticket.souvenir_taken || 0);
+                  const totalQuota = Number(ticket.kuota_pax || ticket.jumlah_tamu) || 1;
+                  const maxEntitled = policy === 'per_undangan' ? Math.max(0, 1 - taken) : Math.max(0, totalQuota - taken);
+                  if (maxEntitled > 0) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLastScannedSouvenir(null);
+                          setIsDivisiSouvenirConfirmed(false);
+                          setSelectedDivisiSouvenir(1);
+                        }}
+                        className="px-5 py-2.5 rounded-xl bg-white text-purple-950 font-bold text-xs shadow-md hover:bg-purple-50 transition-all inline-flex items-center space-x-1.5 cursor-pointer active:scale-95"
+                      >
+                        <Plus size={15} />
+                        <span>Klaim Sisa Souvenir Berikutnya (Sisa: {maxEntitled} Paket)</span>
+                      </button>
+                    );
+                  }
+                  return (
+                    <div className="inline-block px-4 py-1.5 rounded-full bg-black/20 text-purple-200 text-xs font-semibold">
+                      ✓ Seluruh Hak Souvenir Telah Diambil
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             {/* KHUSUS UNDANGAN DIVISI: KARTU PENENTUAN JUMLAH PAX / SOUVENIR OLEH TAMU */}
             {ticket.is_divisi ? (
               <div className="animate-fade-in space-y-3">
                 {activeBarcodeTab === 'kehadiran' ? (
-                  <div className="bg-gradient-to-br from-amber-50 via-white to-amber-50/60 p-5 rounded-3xl border-2 border-amber-300 shadow-lg space-y-3">
+                  <div id="divisi-pax-selector-card" className="bg-gradient-to-br from-amber-50 via-white to-amber-50/60 p-5 rounded-3xl border-2 border-amber-300 shadow-lg space-y-3 scroll-mt-20">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2.5">
                         <div className="w-10 h-10 rounded-2xl bg-maroon text-gold flex items-center justify-center font-bold text-xs shadow-sm">
@@ -750,6 +896,33 @@ const GuestPass: React.FC = () => {
                     {(ticket.sisa_kuota !== undefined ? ticket.sisa_kuota : Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0))) <= 0 ? (
                       <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-center text-xs font-bold text-rose-800">
                         ⚠️ Seluruh kuota rombongan divisi ({ticket.kuota_pax || ticket.jumlah_tamu} Pax) telah hadir.
+                      </div>
+                    ) : isDivisiPaxConfirmed ? (
+                      <div className="space-y-3">
+                        <div className="p-4 bg-emerald-50 rounded-2xl border-2 border-emerald-300 flex items-center justify-between text-xs shadow-sm">
+                          <div className="flex items-center space-x-2.5">
+                            <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping shrink-0" />
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-emerald-800 tracking-wider block">
+                                Status Kloter
+                              </span>
+                              <span className="font-serif font-bold text-base text-emerald-950">
+                                Terkonfirmasi: {selectedDivisiPax} Pax Hadir
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleEditDivisiPax}
+                            className="px-3 py-1.5 rounded-xl bg-white text-stone-700 hover:text-maroon border border-stone-300 font-bold text-xs flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs active:scale-95"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Ubah Jumlah</span>
+                          </button>
+                        </div>
+                        <div className="p-2.5 bg-emerald-100/70 rounded-xl border border-emerald-300/80 text-[11px] text-emerald-950 text-center font-medium">
+                          🟢 <strong>Barcode di bawah telah aktif</strong> untuk {selectedDivisiPax} Pax. Arahkan ke scanner meja penerima tamu.
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -839,14 +1012,20 @@ const GuestPass: React.FC = () => {
                           })()}
                         </div>
 
-                        <div className="p-2.5 bg-amber-100/70 rounded-xl border border-amber-300/80 text-[11px] text-amber-950 text-center font-medium">
-                          ⚡ Barcode di bawah <strong>otomatis disiapkan untuk check-in {selectedDivisiPax} Pax</strong>. Petugas penerima tamu akan langsung memindai tanpa perlu menentukan jumlahnya lagi.
-                        </div>
+                        {/* Tombol Confirm Sebelum Barcode Muncul */}
+                        <button
+                          type="button"
+                          onClick={handleConfirmDivisiPax}
+                          className="w-full py-4 rounded-2xl bg-gradient-to-r from-[#6B0F1A] via-[#800000] to-[#550B14] hover:brightness-110 text-gold font-bold text-xs uppercase tracking-wider shadow-lg hover:shadow-xl transition-all flex items-center justify-center space-x-2 border-2 border-gold/40 cursor-pointer active:scale-98"
+                        >
+                          <CheckCircle2 size={16} className="text-gold" />
+                          <span>Konfirmasi &amp; Tampilkan Barcode ({selectedDivisiPax} Pax)</span>
+                        </button>
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="bg-gradient-to-br from-purple-50 via-white to-purple-50/60 p-5 rounded-3xl border-2 border-purple-300 shadow-lg space-y-3">
+                  <div id="divisi-souvenir-selector-card" className="bg-gradient-to-br from-purple-50 via-white to-purple-50/60 p-5 rounded-3xl border-2 border-purple-300 shadow-lg space-y-3 scroll-mt-20">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2.5">
                         <div className="w-10 h-10 rounded-2xl bg-purple-700 text-purple-100 flex items-center justify-center font-bold text-xs shadow-sm">
@@ -894,6 +1073,37 @@ const GuestPass: React.FC = () => {
                         return (
                           <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-center text-xs font-bold text-emerald-800">
                             ✓ Seluruh paket souvenir untuk rombongan divisi ini telah selesai diambil ({taken} Paket).
+                          </div>
+                        );
+                      }
+
+                      if (isDivisiSouvenirConfirmed) {
+                        return (
+                          <div className="space-y-3">
+                            <div className="p-4 bg-purple-50 rounded-2xl border-2 border-purple-300 flex items-center justify-between text-xs shadow-sm">
+                              <div className="flex items-center space-x-2.5">
+                                <span className="w-3 h-3 rounded-full bg-purple-500 animate-ping shrink-0" />
+                                <div>
+                                  <span className="text-[10px] uppercase font-bold text-purple-800 tracking-wider block">
+                                    Status Pengambilan
+                                  </span>
+                                  <span className="font-serif font-bold text-base text-purple-950">
+                                    Terkonfirmasi: {selectedDivisiSouvenir} Paket Souvenir
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleEditDivisiSouvenir}
+                                className="px-3 py-1.5 rounded-xl bg-white text-purple-900 border border-purple-200 font-bold text-xs flex items-center space-x-1 cursor-pointer transition-colors shadow-2xs active:scale-95"
+                              >
+                                <RotateCcw size={12} />
+                                <span>Ubah Jumlah</span>
+                              </button>
+                            </div>
+                            <div className="p-2.5 bg-purple-100/70 rounded-xl border border-purple-200 text-[11px] text-purple-950 text-center font-medium">
+                              🟢 <strong>Barcode souvenir di bawah telah aktif</strong> untuk {selectedDivisiSouvenir} Paket. Tunjukkan ke petugas souvenir.
+                            </div>
                           </div>
                         );
                       }
@@ -963,9 +1173,15 @@ const GuestPass: React.FC = () => {
                             </div>
                           )}
 
-                          <div className="p-2.5 bg-purple-100/70 rounded-xl border border-purple-200/80 text-[11px] text-purple-900 text-center font-medium">
-                            ⚡ Barcode souvenir di bawah <strong>otomatis disiapkan untuk klaim {selectedDivisiSouvenir} Paket</strong>.
-                          </div>
+                          {/* Tombol Confirm Sebelum Barcode Souvenir Muncul */}
+                          <button
+                            type="button"
+                            onClick={handleConfirmDivisiSouvenir}
+                            className="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-800 via-purple-900 to-purple-800 hover:brightness-110 text-white font-bold text-xs uppercase tracking-wider shadow-lg hover:shadow-xl transition-all flex items-center justify-center space-x-2 border-2 border-purple-400/40 cursor-pointer active:scale-98"
+                          >
+                            <Gift size={16} className="text-purple-200" />
+                            <span>Konfirmasi &amp; Tampilkan Barcode Souvenir ({selectedDivisiSouvenir} Paket)</span>
+                          </button>
                         </div>
                       );
                     })()}
@@ -1082,76 +1298,143 @@ const GuestPass: React.FC = () => {
               </div>
 
               {/* QR Code Container (EXTRA LARGE DISPLAY FOR FAST SCANNING) */}
-              <div className="p-5 sm:p-8 text-center bg-gradient-to-b from-white to-[#fdfaf7]">
-                <div 
-                  onClick={() => setIsZoomModalOpen(true)}
-                  className={`inline-block p-4 sm:p-6 bg-white rounded-3xl shadow-xl border-4 mb-4 transition-transform hover:scale-[1.02] cursor-pointer group relative ${
-                    activeBarcodeTab === 'souvenir' ? 'border-amber-400' : 'border-gold-300'
-                  }`}
-                  title="Ketuk untuk memperbesar barcode ke ukuran penuh"
-                >
-                  <img 
-                    src={activeBarcodeTab === 'souvenir' ? (qrSouvenirUrl || qrDataUrl) : (qrKehadiranUrl || qrDataUrl)} 
-                    alt={`QR Code ${ticket.ticket_code}`} 
-                    className="w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 max-w-full object-contain mx-auto"
-                  />
-                  <div className="mt-2 text-[11px] text-stone-500 group-hover:text-maroon font-semibold flex items-center justify-center space-x-1">
-                    <Maximize2 size={13} className="text-gold" />
-                    <span>Ketuk untuk Tampilan Penuh Layar (Zoom)</span>
+              <div id="wedding-pass-barcode-section" className="p-5 sm:p-8 text-center bg-gradient-to-b from-white to-[#fdfaf7]">
+                {/* CEK JIKA UNDANGAN DIVISI BELUM DIKONFIRMASI: KUNCI BARCODE */}
+                {ticket.is_divisi && activeBarcodeTab === 'kehadiran' && !isDivisiPaxConfirmed ? (
+                  <div className="py-12 px-6 text-center bg-stone-50/80 rounded-3xl border-2 border-dashed border-stone-300 space-y-4 my-2 animate-fade-in">
+                    <div className="w-16 h-16 rounded-2xl bg-amber-100 border border-amber-300 text-maroon flex items-center justify-center mx-auto shadow-sm">
+                      <QrCode size={32} className="text-maroon/80" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="font-serif text-lg font-bold text-stone-800">
+                        Barcode Belum Diaktifkan
+                      </h4>
+                      <p className="text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
+                        Pilih jumlah orang yang hadir bersama Anda di menu atas, lalu tekan tombol <strong>"Konfirmasi &amp; Tampilkan Barcode"</strong>. Barcode disembunyikan terlebih dahulu untuk mencegah salah scan.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const selEl = document.getElementById('divisi-pax-selector-card');
+                        if (selEl) selEl.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="px-5 py-2.5 bg-white hover:bg-stone-100 text-maroon border border-gold-300 rounded-xl font-bold text-xs shadow-sm inline-flex items-center space-x-1.5 cursor-pointer active:scale-95"
+                    >
+                      <Users size={14} />
+                      <span>Tentukan Jumlah Hadir ({selectedDivisiPax} Pax)</span>
+                    </button>
                   </div>
-                </div>
-
-                {/* Ticket Code Pill */}
-                <div className="inline-flex items-center space-x-2 px-4 py-2 bg-stone-100 rounded-full border border-stone-300/80 text-stone-800">
-                  <span className="text-xs uppercase text-stone-500 font-semibold tracking-wider">
-                    {activeBarcodeTab === 'souvenir' ? 'Kode Souvenir:' : 'Kode Tiket:'}
-                  </span>
-                  <span className={`font-mono font-bold text-sm tracking-wider ${
-                    activeBarcodeTab === 'souvenir' ? 'text-amber-800' : 'text-[#6B0F1A]'
-                  }`}>
-                    {activeBarcodeTab === 'souvenir' ? `SV-${ticket.ticket_code}` : ticket.ticket_code}
-                  </span>
-                  <button 
-                    onClick={handleCopyCode} 
-                    className="p-1 hover:text-[#6B0F1A] transition-colors cursor-pointer"
-                    title="Salin Kode"
-                  >
-                    {copiedCode ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-                  </button>
-                </div>
-
-                {/* Status Siap Scan Badge */}
-                <div className="pt-2">
-                  <div className={`inline-flex items-center space-x-2 px-4 py-1.5 rounded-full border text-xs font-bold shadow-xs ${
-                    activeBarcodeTab === 'souvenir'
-                      ? 'bg-purple-100 text-purple-950 border-purple-300'
-                      : 'bg-amber-100 text-amber-950 border-amber-300'
-                  }`}>
-                    {activeBarcodeTab === 'souvenir' ? (
-                      <>
-                        <Gift size={14} className="text-purple-700" />
-                        <span>Siap Klaim: <strong>{ticket.is_divisi ? selectedDivisiSouvenir : 1} Paket Souvenir</strong></span>
-                      </>
-                    ) : (
-                      <>
-                        <Users size={14} className="text-maroon" />
-                        <span>Siap Check-in: <strong>{ticket.is_divisi ? selectedDivisiPax : (ticket.jumlah_hadir_konfirmasi || 1)} Pax</strong></span>
-                      </>
+                ) : ticket.is_divisi && activeBarcodeTab === 'souvenir' && !isDivisiSouvenirConfirmed ? (
+                  <div className="py-12 px-6 text-center bg-stone-50/80 rounded-3xl border-2 border-dashed border-purple-200 space-y-4 my-2 animate-fade-in">
+                    <div className="w-16 h-16 rounded-2xl bg-purple-100 border border-purple-300 text-purple-900 flex items-center justify-center mx-auto shadow-sm">
+                      <Gift size={32} className="text-purple-700" />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="font-serif text-lg font-bold text-stone-800">
+                        Barcode Souvenir Belum Diaktifkan
+                      </h4>
+                      <p className="text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
+                        Pilih jumlah paket souvenir yang ingin diambil di menu atas, lalu tekan tombol <strong>"Konfirmasi &amp; Tampilkan Barcode Souvenir"</strong>.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const selEl = document.getElementById('divisi-souvenir-selector-card');
+                        if (selEl) selEl.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      className="px-5 py-2.5 bg-white hover:bg-stone-100 text-purple-900 border border-purple-300 rounded-xl font-bold text-xs shadow-sm inline-flex items-center space-x-1.5 cursor-pointer active:scale-95"
+                    >
+                      <Gift size={14} />
+                      <span>Tentukan Paket Souvenir ({selectedDivisiSouvenir} Paket)</span>
+                    </button>
+                  </div>
+                ) : (
+                  /* TAMPILAN BARCODE AKTIF (SETELAH DIKONFIRMASI ATAU UNTUK TAMU REGULER) */
+                  <>
+                    {ticket.is_divisi && (
+                      <div className="mb-4">
+                        <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-emerald-100 text-emerald-950 border border-emerald-300 text-xs font-bold shadow-xs">
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping" />
+                          <span>
+                            🟢 Barcode Aktif: Siap Discan untuk <strong>{activeBarcodeTab === 'souvenir' ? `${selectedDivisiSouvenir} Paket` : `${selectedDivisiPax} Pax`}</strong>
+                          </span>
+                        </div>
+                      </div>
                     )}
-                  </div>
-                </div>
 
-                {/* Download QR Button (Highlight) */}
-                <div className="pt-3">
-                  <a
-                    href={activeBarcodeTab === 'souvenir' ? (qrSouvenirUrl || qrDataUrl) : (qrKehadiranUrl || qrDataUrl)}
-                    download={`QR-${activeBarcodeTab === 'souvenir' ? 'Souvenir' : 'Kehadiran'}-${ticket.ticket_code}.png`}
-                    className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-all shadow-sm active:scale-95"
-                  >
-                    <Download size={15} className="text-amber-700" />
-                    <span>Download Barcode {activeBarcodeTab === 'souvenir' ? 'Souvenir' : 'Kehadiran'} (PNG)</span>
-                  </a>
-                </div>
+                    <div 
+                      onClick={() => setIsZoomModalOpen(true)}
+                      className={`inline-block p-4 sm:p-6 bg-white rounded-3xl shadow-xl border-4 mb-4 transition-transform hover:scale-[1.02] cursor-pointer group relative ${
+                        activeBarcodeTab === 'souvenir' ? 'border-amber-400' : 'border-gold-300'
+                      }`}
+                      title="Ketuk untuk memperbesar barcode ke ukuran penuh"
+                    >
+                      <img 
+                        src={activeBarcodeTab === 'souvenir' ? (qrSouvenirUrl || qrDataUrl) : (qrKehadiranUrl || qrDataUrl)} 
+                        alt={`QR Code ${ticket.ticket_code}`} 
+                        className="w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 max-w-full object-contain mx-auto"
+                      />
+                      <div className="mt-2 text-[11px] text-stone-500 group-hover:text-maroon font-semibold flex items-center justify-center space-x-1">
+                        <Maximize2 size={13} className="text-gold" />
+                        <span>Ketuk untuk Tampilan Penuh Layar (Zoom)</span>
+                      </div>
+                    </div>
+
+                    {/* Ticket Code Pill */}
+                    <div className="inline-flex items-center space-x-2 px-4 py-2 bg-stone-100 rounded-full border border-stone-300/80 text-stone-800">
+                      <span className="text-xs uppercase text-stone-500 font-semibold tracking-wider">
+                        {activeBarcodeTab === 'souvenir' ? 'Kode Souvenir:' : 'Kode Tiket:'}
+                      </span>
+                      <span className={`font-mono font-bold text-sm tracking-wider ${
+                        activeBarcodeTab === 'souvenir' ? 'text-amber-800' : 'text-[#6B0F1A]'
+                      }`}>
+                        {activeBarcodeTab === 'souvenir' ? `SV-${ticket.ticket_code}` : ticket.ticket_code}
+                      </span>
+                      <button 
+                        onClick={handleCopyCode} 
+                        className="p-1 hover:text-[#6B0F1A] transition-colors cursor-pointer"
+                        title="Salin Kode"
+                      >
+                        {copiedCode ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+
+                    {/* Status Siap Scan Badge */}
+                    <div className="pt-2">
+                      <div className={`inline-flex items-center space-x-2 px-4 py-1.5 rounded-full border text-xs font-bold shadow-xs ${
+                        activeBarcodeTab === 'souvenir'
+                          ? 'bg-purple-100 text-purple-950 border-purple-300'
+                          : 'bg-amber-100 text-amber-950 border-amber-300'
+                      }`}>
+                        {activeBarcodeTab === 'souvenir' ? (
+                          <>
+                            <Gift size={14} className="text-purple-700" />
+                            <span>Siap Klaim: <strong>{ticket.is_divisi ? selectedDivisiSouvenir : 1} Paket Souvenir</strong></span>
+                          </>
+                        ) : (
+                          <>
+                            <Users size={14} className="text-maroon" />
+                            <span>Siap Check-in: <strong>{ticket.is_divisi ? selectedDivisiPax : (ticket.jumlah_hadir_konfirmasi || 1)} Pax</strong></span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Download QR Button (Highlight) */}
+                    <div className="pt-3">
+                      <a
+                        href={activeBarcodeTab === 'souvenir' ? (qrSouvenirUrl || qrDataUrl) : (qrKehadiranUrl || qrDataUrl)}
+                        download={`QR-${activeBarcodeTab === 'souvenir' ? 'Souvenir' : 'Kehadiran'}-${ticket.ticket_code}.png`}
+                        className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs transition-all shadow-sm active:scale-95"
+                      >
+                        <Download size={15} className="text-amber-700" />
+                        <span>Download Barcode {activeBarcodeTab === 'souvenir' ? 'Souvenir' : 'Kehadiran'} (PNG)</span>
+                      </a>
+                    </div>
+                  </>
+                )}
 
                 {/* Dashed Tear-off Line */}
                 <div className="relative my-6">

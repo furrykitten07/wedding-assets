@@ -91,6 +91,7 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingRef = useRef(false);
+  const processedTokensRef = useRef<Map<string, number>>(new Map());
 
   // Desk Sub-Navigation & Scanner Mode
   const [activeDeskTab, setActiveDeskTab] = useState<'semua' | 'kehadiran' | 'souvenir'>('semua');
@@ -214,6 +215,13 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
       return isNaN(parsed) ? null : parsed;
     }
     return null;
+  };
+
+  // Helper untuk mengekstrak token request unik (mencegah double scan pada satu barcode kloter)
+  const extractReqToken = (raw: string): string | null => {
+    if (!raw) return null;
+    const match = raw.match(/[?&](?:req|token|nonce)=([A-Za-z0-9_-]+)/i);
+    return match && match[1] ? match[1] : null;
   };
 
   // Helper to detect if the scanned input represents a Souvenir action
@@ -427,6 +435,33 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
     isProcessingRef.current = true;
     const isSouvenir = isSouvenirAction(rawInput);
     const guestPaxParam = extractPax(rawInput);
+    const reqToken = extractReqToken(rawInput);
+
+    // Mencegah double scan (baik via token unik kloter maupun barcode yang sama berulang kali)
+    const nowTime = Date.now();
+    if (reqToken) {
+      const lastProc = processedTokensRef.current.get(reqToken);
+      if (lastProc && nowTime - lastProc < 300000) {
+        if (soundEnabled) playChime(false);
+        toast('⚠️ Barcode kloter ini SUDAH PERNAH DI-SCAN! Mencegah check-in ganda.', {
+          icon: '🛑',
+          style: { background: '#FEF2F2', color: '#991B1B', border: '1px solid #F87171' }
+        });
+        setTimeout(() => {
+          isProcessingRef.current = false;
+        }, 1500);
+        return;
+      }
+    } else {
+      const dedupKey = `${code}-${isSouvenir ? 'sv' : 'in'}-${guestPaxParam || 1}`;
+      const lastProc = processedTokensRef.current.get(dedupKey);
+      if (lastProc && nowTime - lastProc < 8000) {
+        setTimeout(() => {
+          isProcessingRef.current = false;
+        }, 1500);
+        return;
+      }
+    }
 
     try {
       const { data, error } = await supabase
@@ -473,6 +508,9 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
           // JIKA JUMLAH SOUVENIR TELAH DITENTUKAN OLEH TAMU DARI BARCODE HP-NYA
           if (guestPaxParam !== null && guestPaxParam > 0) {
             const finalCount = Math.min(guestPaxParam, maxEntitled);
+            if (reqToken) processedTokensRef.current.set(reqToken, Date.now());
+            const dedupKey = `${code}-sv-${guestPaxParam}`;
+            processedTokensRef.current.set(dedupKey, Date.now());
             await executeDirectDivisiSouvenir(target, finalCount, `Ditentukan oleh tamu (${finalCount} Paket)`);
             return;
           }
@@ -498,6 +536,9 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
           // JIKA JUMLAH ORANG / PAX TELAH DITENTUKAN OLEH TAMU DARI BARCODE HP-NYA
           if (guestPaxParam !== null && guestPaxParam > 0) {
             const finalPax = Math.min(guestPaxParam, sisa);
+            if (reqToken) processedTokensRef.current.set(reqToken, Date.now());
+            const dedupKey = `${code}-in-${guestPaxParam}`;
+            processedTokensRef.current.set(dedupKey, Date.now());
             await executeDirectDivisiCheckin(target, finalPax, `Ditentukan oleh tamu (+${finalPax} Pax)`);
             return;
           }

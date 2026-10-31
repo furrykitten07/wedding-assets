@@ -33,7 +33,8 @@ import {
   Save,
   Volume2,
   VolumeX,
-  X
+  X,
+  Building2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase, logActivity } from '../supabase';
@@ -1149,9 +1150,16 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
                     {/* Nama Tamu / Keluarga */}
                     <td className="px-6 py-4">
-                      <p className="font-bold text-gray-900 text-sm">
-                        {guest.nama_keluarga || guest.nama_tamu}
-                      </p>
+                      <div className="flex items-center space-x-2 flex-wrap">
+                        <p className="font-bold text-gray-900 text-sm">
+                          {guest.nama_divisi || guest.nama_keluarga || guest.nama_tamu}
+                        </p>
+                        {guest.is_divisi && (
+                          <span className="px-2 py-0.5 rounded-md bg-maroon text-gold font-black text-[9px] uppercase tracking-wider">
+                            🏢 Divisi
+                          </span>
+                        )}
+                      </div>
                       {guest.no_whatsapp ? (
                         <a
                           href={`https://wa.me/${guest.no_whatsapp.replace(/\D/g, '')}`}
@@ -1160,7 +1168,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                           className="inline-flex items-center space-x-1 text-emerald-600 hover:underline text-[11px] mt-0.5"
                         >
                           <Phone size={11} />
-                          <span>{guest.no_whatsapp}</span>
+                          <span>{guest.no_whatsapp} {guest.is_divisi ? '(PIC)' : ''}</span>
                         </a>
                       ) : (
                         <span className="text-gray-400 text-[11px]">-</span>
@@ -1198,13 +1206,26 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
                     {/* Jumlah Tamu (Pax) */}
                     <td className="px-6 py-4 text-center whitespace-nowrap">
-                      <span className="font-bold text-gray-900 block">
-                        {guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Orang
-                      </span>
-                      {guest.jatah_tamu && (
-                        <span className="text-[10px] text-gray-400 font-normal block">
-                          (Jatah: {guest.jatah_tamu})
-                        </span>
+                      {guest.is_divisi ? (
+                        <div>
+                          <span className="font-bold text-gray-900 font-mono block">
+                            {guest.pax_hadir || 0} / {guest.kuota_pax || guest.jumlah_tamu} Pax
+                          </span>
+                          <span className="text-[10px] text-amber-800 font-semibold block">
+                            Sisa: {guest.sisa_kuota ?? Math.max(0, (guest.kuota_pax || guest.jumlah_tamu || 1) - (guest.pax_hadir || 0))} Pax
+                          </span>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="font-bold text-gray-900 block">
+                            {guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Orang
+                          </span>
+                          {guest.jatah_tamu && (
+                            <span className="text-[10px] text-gray-400 font-normal block">
+                              (Jatah: {guest.jatah_tamu})
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
 

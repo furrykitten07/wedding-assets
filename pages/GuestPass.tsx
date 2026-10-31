@@ -23,7 +23,9 @@ import {
   Search,
   Edit3,
   X,
-  Maximize2
+  Maximize2,
+  Building2,
+  History
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
@@ -794,55 +796,152 @@ const GuestPass: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Guest Details */}
+                {/* Guest Details (Individu vs Undangan Divisi) */}
                 <div className="space-y-4 text-left">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu / Keluarga</p>
-                      <p className="font-serif text-xl font-bold text-stone-900 leading-tight mt-0.5">
-                        {ticket.nama_keluarga || ticket.nama_tamu}
-                      </p>
-                    </div>
+                  {ticket.is_divisi ? (
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="px-2 py-0.5 rounded-md bg-maroon text-gold font-black text-[9px] uppercase tracking-wider">
+                              🏢 Undangan Divisi / Kelompok
+                            </span>
+                          </div>
+                          <p className="font-serif text-2xl font-bold text-stone-900 leading-tight mt-1">
+                            {ticket.nama_divisi || ticket.nama_keluarga || ticket.nama_tamu}
+                          </p>
+                        </div>
+                      </div>
 
-                    <button
-                      onClick={() => setIsEditingConfirmation(true)}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold text-maroon hover:bg-gold-50 border border-gold-200 transition-colors"
-                      title="Ubah Konfirmasi Kehadiran"
-                    >
-                      <Edit3 size={13} />
-                      <span>Ubah</span>
-                    </button>
-                  </div>
+                      {/* Quota Progress Bento */}
+                      <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                        <div className="p-2.5 bg-stone-50 rounded-xl border border-stone-200">
+                          <span className="text-[9px] font-bold text-stone-500 uppercase tracking-wider block">Total Kuota</span>
+                          <span className="font-serif text-lg font-bold text-maroon block mt-0.5">
+                            {ticket.kuota_pax || ticket.jumlah_tamu}
+                          </span>
+                          <span className="text-[9px] text-stone-400">Pax Anggota</span>
+                        </div>
 
-                  <div className="grid grid-cols-2 gap-4 pt-2 border-t border-stone-100">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Pihak Mempelai</p>
-                      <span className="inline-block mt-1 px-2.5 py-1 rounded-md bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold">
-                        {ticket.pihak}
-                      </span>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Konfirmasi Kehadiran</p>
-                      <p className="text-sm font-bold text-stone-800 mt-1 flex items-center space-x-1.5">
-                        <Users size={15} className="text-[#6B0F1A]" />
-                        <span>
-                          {ticket.jumlah_hadir_konfirmasi || ticket.jumlah_tamu} Orang
-                          {ticket.jatah_tamu ? ` (Jatah: ${ticket.jatah_tamu})` : ''}
+                        <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200">
+                          <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wider block">Sudah Hadir</span>
+                          <span className="font-serif text-lg font-bold text-emerald-800 block mt-0.5">
+                            {ticket.pax_hadir || 0}
+                          </span>
+                          <span className="text-[9px] text-emerald-600">Pax Check-in</span>
+                        </div>
+
+                        <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200">
+                          <span className="text-[9px] font-bold text-amber-900 uppercase tracking-wider block">Sisa Kuota</span>
+                          <span className="font-serif text-lg font-bold text-amber-900 block mt-0.5">
+                            {ticket.sisa_kuota ?? Math.max(0, (ticket.kuota_pax || ticket.jumlah_tamu || 1) - (ticket.pax_hadir || 0))}
+                          </span>
+                          <span className="text-[9px] text-amber-700">Pax Tersedia</span>
+                        </div>
+                      </div>
+
+                      {/* Shared QR Explanation */}
+                      <div className="p-3 bg-amber-50/70 rounded-xl border border-gold-300 text-xs text-amber-950 flex items-start space-x-2">
+                        <Building2 size={16} className="text-amber-800 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="block">QR Code Bersama Divisi</strong>
+                          <p className="text-[11px] text-stone-600 mt-0.5">
+                            QR Code ini digunakan bersama oleh seluruh rekan rombongan. Setiap kloter yang hadir dapat memindai barcode yang sama selama sisa kuota masih tersedia.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Riwayat Check-in Kloter */}
+                      {ticket.checkin_history && ticket.checkin_history.length > 0 && (
+                        <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-1.5">
+                          <span className="text-[10px] font-bold text-maroon uppercase tracking-wider flex items-center space-x-1">
+                            <History size={12} />
+                            <span>Riwayat Kedatangan Anggota ({ticket.checkin_history.length} Kloter)</span>
+                          </span>
+                          <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar">
+                            {ticket.checkin_history.map((tx, idx) => (
+                              <div key={tx.id || idx} className="text-[11px] flex justify-between bg-white px-2 py-1 rounded border border-stone-100">
+                                <span>Kloter #{idx + 1}: <strong>+{tx.pax} Pax</strong> {tx.catatan ? `(${tx.catatan})` : ''}</span>
+                                <span className="font-mono text-stone-400">
+                                  {new Date(tx.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Souvenir Division Policy */}
+                      <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-200 flex items-center justify-between text-xs text-purple-950">
+                        <div className="flex items-center space-x-2">
+                          <Gift size={16} className="text-purple-700" />
+                          <div>
+                            <span className="font-bold block">
+                              {ticket.souvenir_policy === 'per_undangan'
+                                ? '1 Paket Souvenir / Undangan Divisi'
+                                : '1 Souvenir / Pax Anggota Hadir'}
+                            </span>
+                            <span className="text-[10px] text-purple-800">
+                              Total diambil: {ticket.souvenir_taken || 0} paket
+                            </span>
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-xs bg-white px-2 py-0.5 rounded border border-purple-300">
+                          {ticket.souvenir_taken || 0} Diambil
                         </span>
-                      </p>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu / Keluarga</p>
+                          <p className="font-serif text-xl font-bold text-stone-900 leading-tight mt-0.5">
+                            {ticket.nama_keluarga || ticket.nama_tamu}
+                          </p>
+                        </div>
 
-                  {/* Souvenir Info Card */}
-                  <div className="p-3 bg-amber-50/60 rounded-xl border border-gold-200 flex items-center space-x-2.5 text-xs text-amber-950">
-                    <Gift size={18} className="text-amber-700 shrink-0" />
-                    <div>
-                      <span className="font-bold block">1 Paket Souvenir per Undangan / Keluarga</span>
-                      <span className="text-[11px] text-amber-800">
-                        {ticket.is_souvenir_given ? '✓ Souvenir telah diserahkan di meja resepsi.' : 'Disediakan dan diserahkan saat check-in di meja penerima tamu.'}
-                      </span>
-                    </div>
-                  </div>
+                        <button
+                          onClick={() => setIsEditingConfirmation(true)}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold text-maroon hover:bg-gold-50 border border-gold-200 transition-colors"
+                          title="Ubah Konfirmasi Kehadiran"
+                        >
+                          <Edit3 size={13} />
+                          <span>Ubah</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pt-2 border-t border-stone-100">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Pihak Mempelai</p>
+                          <span className="inline-block mt-1 px-2.5 py-1 rounded-md bg-amber-50 text-amber-900 border border-amber-200 text-xs font-semibold">
+                            {ticket.pihak}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Konfirmasi Kehadiran</p>
+                          <p className="text-sm font-bold text-stone-800 mt-1 flex items-center space-x-1.5">
+                            <Users size={15} className="text-[#6B0F1A]" />
+                            <span>
+                              {ticket.jumlah_hadir_konfirmasi || ticket.jumlah_tamu} Orang
+                              {ticket.jatah_tamu ? ` (Jatah: ${ticket.jatah_tamu})` : ''}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Souvenir Info Card */}
+                      <div className="p-3 bg-amber-50/60 rounded-xl border border-gold-200 flex items-center space-x-2.5 text-xs text-amber-950">
+                        <Gift size={18} className="text-amber-700 shrink-0" />
+                        <div>
+                          <span className="font-bold block">1 Paket Souvenir per Undangan / Keluarga</span>
+                          <span className="text-[11px] text-amber-800">
+                            {ticket.is_souvenir_given ? '✓ Souvenir telah diserahkan di meja resepsi.' : 'Disediakan dan diserahkan saat check-in di meja penerima tamu.'}
+                          </span>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {ticket.ucapan && (
                     <div className="pt-3 border-t border-stone-100">

@@ -41,6 +41,22 @@ export interface BudgetItem {
   updated_at: string;
 }
 
+export interface CheckinTransaction {
+  id: string;
+  waktu: string;
+  pax: number;
+  petugas: string;
+  catatan?: string;
+}
+
+export interface SouvenirTransaction {
+  id: string;
+  waktu: string;
+  jumlah: number;
+  petugas: string;
+  catatan?: string;
+}
+
 export interface Guest {
   id: string;
   nama_tamu: string;
@@ -56,6 +72,17 @@ export interface Guest {
   total_pax: number;
   is_attended?: boolean;
   is_souvenir_given?: boolean;
+  // Khusus Undangan Divisi / Kelompok
+  is_divisi?: boolean;
+  nama_divisi?: string;
+  kuota_pax?: number;
+  pax_hadir?: number;
+  sisa_kuota?: number;
+  checkin_history?: CheckinTransaction[];
+  souvenir_policy?: 'per_pax' | 'per_undangan';
+  souvenir_quota?: number;
+  souvenir_taken?: number;
+  souvenir_history?: SouvenirTransaction[];
   created_at: string;
 }
 
@@ -126,5 +153,16 @@ export interface BukuTamu {
   attended_at?: string | null;
   is_souvenir_given?: boolean;
   souvenir_given_at?: string | null;
+  // Khusus Undangan Divisi / Kelompok
+  is_divisi?: boolean;
+  nama_divisi?: string;
+  kuota_pax?: number;
+  pax_hadir?: number;
+  sisa_kuota?: number;
+  checkin_history?: CheckinTransaction[];
+  souvenir_policy?: 'per_pax' | 'per_undangan';
+  souvenir_quota?: number;
+  souvenir_taken?: number;
+  souvenir_history?: SouvenirTransaction[];
   created_at: string;
 }

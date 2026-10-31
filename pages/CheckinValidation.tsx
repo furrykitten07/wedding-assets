@@ -20,11 +20,16 @@ import {
   UserCheck,
   Gift,
   Award,
-  PackageCheck
+  PackageCheck,
+  Building2,
+  Users2,
+  Plus,
+  Minus,
+  History
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase, logActivity } from '../supabase';
-import { BukuTamu } from '../types';
+import { BukuTamu, CheckinTransaction, SouvenirTransaction } from '../types';
 
 // Audio feedback chime using Web Audio API
 const playChime = (isSuccess: boolean = true) => {
@@ -83,6 +88,13 @@ const CheckinValidation: React.FC = () => {
   // Manual input state
   const [inputCode, setInputCode] = useState('');
 
+  // Division Multi-Kloter Check-in & Souvenir states
+  const [divisiPaxInput, setDivisiPaxInput] = useState<number>(1);
+  const [divisiNoteInput, setDivisiNoteInput] = useState<string>('');
+  const [divisiSouvenirCountInput, setDivisiSouvenirCountInput] = useState<number>(1);
+  const [divisiSouvenirNoteInput, setDivisiSouvenirNoteInput] = useState<string>('');
+  const [isSubmittingDivision, setIsSubmittingDivision] = useState<boolean>(false);
+
   // Officer Login Form state
   const [officerUser, setOfficerUser] = useState('resepsi');
   const [officerPassword, setOfficerPassword] = useState('');
@@ -136,7 +148,32 @@ const CheckinValidation: React.FC = () => {
       setGuest(target);
       const currentSess = activeSession !== undefined ? activeSession : session;
 
-      // Handle Souvenir Mode
+      // Handle Undangan Divisi / Kelompok (Multi-Kloter Check-in & Souvenir Bertahap)
+      if (target.is_divisi) {
+        if (isSouvenirMode) {
+          const policy = target.souvenir_policy || 'per_pax';
+          const taken = Number(target.souvenir_taken || 0);
+          const hadir = Number(target.pax_hadir || 0);
+          const maxEntitled = policy === 'per_undangan'
+            ? Math.max(0, 1 - taken)
+            : Math.max(0, hadir - taken);
+
+          setDivisiSouvenirCountInput(maxEntitled > 0 ? 1 : 0);
+          setWasAlreadyAttended(maxEntitled <= 0);
+          setProcessed(false);
+        } else {
+          const totalQ = Number(target.kuota_pax || target.jumlah_tamu) || 1;
+          const hadir = Number(target.pax_hadir || 0);
+          const sisa = Math.max(0, totalQ - hadir);
+
+          setDivisiPaxInput(sisa > 0 ? 1 : 0);
+          setWasAlreadyAttended(sisa <= 0);
+          setProcessed(false);
+        }
+        return;
+      }
+
+      // Handle Souvenir Mode (Individu)
       if (isSouvenirMode && currentSess?.user) {
         if (target.is_souvenir_given) {
           setWasAlreadyAttended(true);
@@ -232,6 +269,208 @@ const CheckinValidation: React.FC = () => {
     } catch (err: any) {
       console.error('Confirm check-in error:', err);
       toast.error('Gagal mengonfirmasi kehadiran: ' + err.message);
+    }
+  };
+
+  // Konfirmasi Check-in Kloter Divisi (Direct URL)
+  const handleConfirmDivisiCheckinDirect = async () => {
+    if (!guest || isSubmittingDivision) return;
+    try {
+      setIsSubmittingDivision(true);
+
+      const { data: latestRaw, error: fetchErr } = await supabase
+        .from('buku_tamu')
+        .select('*')
+        .eq('id', guest.id);
+
+      if (fetchErr && !fetchErr.message?.includes('schema cache')) throw fetchErr;
+      const latest = (Array.isArray(latestRaw) ? latestRaw[0] : latestRaw) || guest;
+
+      const totalQ = Number(latest.kuota_pax || latest.jumlah_tamu) || 1;
+      const hadir = Number(latest.pax_hadir || 0);
+      const sisa = Math.max(0, totalQ - hadir);
+
+      if (sisa <= 0) {
+        toast.error('Kuota undangan divisi ini sudah penuh!');
+        return;
+      }
+
+      const inputPax = Number(divisiPaxInput);
+      if (isNaN(inputPax) || inputPax < 1 || inputPax > sisa) {
+        toast.error(`Jumlah pax harus antara 1 sampai ${sisa}!`);
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const officerEmail = session?.user?.email || 'resepsi@wedding.com';
+      const officerName = session?.user?.email?.toLowerCase().includes('staff1')
+        ? 'Staff 1'
+        : session?.user?.email?.toLowerCase().includes('staff2')
+        ? 'Staff 2'
+        : officerEmail.split('@')[0];
+
+      const newTx: CheckinTransaction = {
+        id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        waktu: nowIso,
+        pax: inputPax,
+        petugas: officerName,
+        catatan: divisiNoteInput.trim() || undefined
+      };
+
+      const newHistory = [...(latest.checkin_history || []), newTx];
+      const newHadir = hadir + inputPax;
+      const newSisa = Math.max(0, totalQ - newHadir);
+
+      const updatePayload = {
+        pax_hadir: newHadir,
+        sisa_kuota: newSisa,
+        is_attended: true,
+        attended_at: latest.attended_at || nowIso,
+        checkin_history: newHistory
+      };
+
+      const { error: updateError } = await supabase
+        .from('buku_tamu')
+        .update(updatePayload)
+        .eq('id', latest.id);
+
+      if (updateError && !updateError.message?.includes('schema cache')) throw updateError;
+
+      try {
+        await supabase
+          .from('tamu')
+          .update({
+            pax_hadir: newHadir,
+            sisa_kuota: newSisa,
+            checkin_history: newHistory
+          })
+          .eq('ticket_code', latest.ticket_code);
+      } catch (tSync) {
+        console.warn('Sync tamu warn:', tSync);
+      }
+
+      const updated = {
+        ...latest,
+        ...updatePayload
+      };
+
+      setGuest(updated);
+      setProcessed(true);
+      playChime(true);
+      toast.success(`✅ Check-in +${inputPax} Pax berhasil untuk ${latest.nama_divisi || latest.nama_tamu}! Sisa: ${newSisa} Pax.`);
+
+      logActivity(
+        officerEmail,
+        'update',
+        'Tamu',
+        `Check-in Kloter Divisi (Direct URL): ${latest.nama_divisi || latest.nama_tamu} (+${inputPax} Pax • Sisa: ${newSisa})`
+      );
+    } catch (err: any) {
+      toast.error('Gagal memproses check-in kloter: ' + (err?.message || err));
+    } finally {
+      setIsSubmittingDivision(false);
+    }
+  };
+
+  // Konfirmasi Serah Terima Souvenir Divisi (Direct URL)
+  const handleConfirmDivisiSouvenirDirect = async () => {
+    if (!guest || isSubmittingDivision) return;
+    try {
+      setIsSubmittingDivision(true);
+
+      const { data: latestRaw, error: fetchErr } = await supabase
+        .from('buku_tamu')
+        .select('*')
+        .eq('id', guest.id);
+
+      if (fetchErr && !fetchErr.message?.includes('schema cache')) throw fetchErr;
+      const latest = (Array.isArray(latestRaw) ? latestRaw[0] : latestRaw) || guest;
+
+      const policy = latest.souvenir_policy || 'per_pax';
+      const taken = Number(latest.souvenir_taken || 0);
+      const hadir = Number(latest.pax_hadir || 0);
+      const totalQ = Number(latest.kuota_pax || latest.jumlah_tamu) || 1;
+      const maxEntitled = policy === 'per_undangan'
+        ? Math.max(0, 1 - taken)
+        : Math.max(0, hadir - taken);
+
+      if (maxEntitled <= 0) {
+        toast.error('Hak pengambilan souvenir saat ini sudah habis!');
+        return;
+      }
+
+      const inputCount = Number(divisiSouvenirCountInput);
+      if (isNaN(inputCount) || inputCount < 1 || inputCount > maxEntitled) {
+        toast.error(`Jumlah souvenir harus antara 1 sampai ${maxEntitled}!`);
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const officerEmail = session?.user?.email || 'resepsi@wedding.com';
+      const officerName = session?.user?.email?.toLowerCase().includes('staff1')
+        ? 'Staff 1'
+        : session?.user?.email?.toLowerCase().includes('staff2')
+        ? 'Staff 2'
+        : officerEmail.split('@')[0];
+
+      const newSvTx: SouvenirTransaction = {
+        id: `sv-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        waktu: nowIso,
+        jumlah: inputCount,
+        petugas: officerName,
+        catatan: divisiSouvenirNoteInput.trim() || undefined
+      };
+
+      const newHistory = [...(latest.souvenir_history || []), newSvTx];
+      const newTaken = taken + inputCount;
+      const isFullyGiven = policy === 'per_undangan' ? newTaken >= 1 : newTaken >= totalQ;
+
+      const updatePayload = {
+        souvenir_taken: newTaken,
+        is_souvenir_given: isFullyGiven,
+        souvenir_given_at: latest.souvenir_given_at || nowIso,
+        souvenir_history: newHistory
+      };
+
+      const { error: updateError } = await supabase
+        .from('buku_tamu')
+        .update(updatePayload)
+        .eq('id', latest.id);
+
+      if (updateError && !updateError.message?.includes('schema cache')) throw updateError;
+
+      try {
+        await supabase
+          .from('tamu')
+          .update({
+            souvenir_taken: newTaken,
+            souvenir_history: newHistory
+          })
+          .eq('ticket_code', latest.ticket_code);
+      } catch (tSync) {
+        console.warn('Sync tamu warn:', tSync);
+      }
+
+      const updated = {
+        ...latest,
+        ...updatePayload
+      };
+
+      setGuest(updated);
+      setProcessed(true);
+      playChime(true);
+      toast.success(`🎁 Berhasil menyerahkan ${inputCount} paket souvenir untuk ${latest.nama_divisi || latest.nama_tamu}! Total: ${newTaken} paket.`);
+
+      logActivity(
+        officerEmail,
+        'update',
+        'Tamu',
+        `Serah Souvenir Divisi (Direct URL): ${latest.nama_divisi || latest.nama_tamu} (+${inputCount} Paket • Total: ${newTaken})`
+      );
+    } catch (err: any) {
+      toast.error('Gagal memproses penyerahan souvenir: ' + (err?.message || err));
+    } finally {
+      setIsSubmittingDivision(false);
     }
   };
 
@@ -439,7 +678,22 @@ const CheckinValidation: React.FC = () => {
           <div className="space-y-5 animate-fade-in">
             
             {/* Status Banner */}
-            {wasAlreadyAttended ? (
+            {guest.is_divisi ? (
+              <div className="bg-gradient-to-r from-amber-50 to-stone-50 border border-gold-300 rounded-2xl p-5 text-center shadow-sm relative overflow-hidden">
+                <div className="w-12 h-12 bg-maroon/10 text-maroon rounded-full flex items-center justify-center mx-auto mb-2">
+                  <Building2 size={26} className="text-[#6B0F1A]" />
+                </div>
+                <div className="inline-flex items-center space-x-1.5 px-3 py-0.5 rounded-full bg-maroon text-gold font-bold text-[10px] uppercase tracking-wider mb-1">
+                  <span>🏢 Undangan Divisi / Kelompok</span>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-stone-900 mt-1">
+                  {guest.nama_divisi || guest.nama_keluarga || guest.nama_tamu}
+                </h3>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  {isSouvenirMode ? 'Penyerahan Souvenir Anggota Divisi' : 'Sistem Check-in Multi-Kloter / Rombongan Terpisah'}
+                </p>
+              </div>
+            ) : wasAlreadyAttended ? (
               <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 text-center shadow-sm relative overflow-hidden">
                 <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-full flex items-center justify-center mx-auto mb-2">
                   <AlertCircle size={28} />
@@ -486,7 +740,9 @@ const CheckinValidation: React.FC = () => {
             <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl border border-amber-200/80 space-y-5">
               <div className="flex items-center justify-between pb-4 border-b border-stone-100">
                 <div className="flex items-center space-x-2">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">Data Undangan Terdaftar</span>
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">
+                    {guest.is_divisi ? 'Undangan Divisi' : 'Data Undangan Terdaftar'}
+                  </span>
                   {guest.kategori_tamu === 'VIP' ? (
                     <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-200 text-stone-900 font-black text-[10px] uppercase tracking-wider shadow-sm">
                       <Award size={11} className="text-stone-900" />
@@ -504,65 +760,275 @@ const CheckinValidation: React.FC = () => {
               </div>
 
               <div>
-                <p className="text-[11px] uppercase tracking-wider text-stone-400 font-bold">Nama Tamu / Keluarga</p>
+                <p className="text-[11px] uppercase tracking-wider text-stone-400 font-bold">
+                  {guest.is_divisi ? 'Nama Divisi / Kelompok' : 'Nama Tamu / Keluarga'}
+                </p>
                 <h2 className="font-serif text-2xl md:text-3xl font-bold text-stone-900 leading-tight mt-0.5">
-                  {guest.nama_keluarga || guest.nama_tamu}
+                  {guest.nama_divisi || guest.nama_keluarga || guest.nama_tamu}
                 </h2>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 py-2 border-y border-stone-100">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Tamu dari Pihak</p>
-                  <span className="inline-block mt-1 px-3 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 text-xs font-bold">
-                    {guest.pihak}
-                  </span>
-                </div>
+              {/* JIKA DIVISI: TAMPILKAN BENTO KUOTA & KONTROL MULTI-KLOTER */}
+              {guest.is_divisi ? (
+                (() => {
+                  const totalQ = Number(guest.kuota_pax || guest.jumlah_tamu) || 1;
+                  const hadir = Number(guest.pax_hadir || 0);
+                  const sisa = Math.max(0, totalQ - hadir);
+                  const policy = guest.souvenir_policy || 'per_pax';
+                  const taken = Number(guest.souvenir_taken || 0);
+                  const maxEntitled = policy === 'per_undangan'
+                    ? Math.max(0, 1 - taken)
+                    : Math.max(0, hadir - taken);
 
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Jumlah Kehadiran</p>
-                  <p className="text-sm font-bold text-stone-900 mt-1 flex items-center space-x-1.5">
-                    <Users size={16} className="text-[#6B0F1A]" />
-                    <span>
-                      {guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Orang
-                      {guest.jatah_tamu ? ` (Jatah: ${guest.jatah_tamu})` : ''}
-                    </span>
-                  </p>
-                </div>
-              </div>
+                  return (
+                    <div className="space-y-4 pt-1">
+                      {/* Bento Cards */}
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200">
+                          <span className="text-[10px] text-stone-500 font-bold uppercase block">Total Kuota</span>
+                          <span className="text-xl font-serif font-bold text-maroon block mt-0.5">{totalQ}</span>
+                          <span className="text-[10px] text-stone-400">Pax Anggota</span>
+                        </div>
 
-              {/* SOUVENIR STATUS CARD (1 PER UNDANGAN/KELUARGA) */}
-              <div className="p-4 bg-amber-50/60 rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center space-x-2.5">
-                  <Gift size={20} className="text-amber-700 shrink-0" />
-                  <div>
-                    <span className="text-xs font-bold text-stone-900 block">Status Souvenir (1 Paket per Keluarga)</span>
-                    <span className="text-[11px] text-stone-600 block">
-                      {guest.is_souvenir_given 
-                        ? `✓ Sudah diserahkan pada ${guest.souvenir_given_at ? new Date(guest.souvenir_given_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : 'lokasi'}` 
-                        : 'Belum diserahkan'}
-                    </span>
-                  </div>
-                </div>
+                        <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200">
+                          <span className="text-[10px] text-emerald-800 font-bold uppercase block">Sudah Hadir</span>
+                          <span className="text-xl font-serif font-bold text-emerald-800 block mt-0.5">{hadir}</span>
+                          <span className="text-[10px] text-emerald-600">Pax Check-in</span>
+                        </div>
 
-                {isAuthorized && (
-                  <div>
-                    {guest.is_souvenir_given ? (
-                      <div className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-800 text-xs font-bold">
-                        <PackageCheck size={14} className="text-emerald-700" />
-                        <span>✓ Souvenir Diberikan</span>
+                        <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200">
+                          <span className="text-[10px] text-amber-900 font-bold uppercase block">Sisa Kuota</span>
+                          <span className="text-xl font-serif font-bold text-amber-900 block mt-0.5">{sisa}</span>
+                          <span className="text-[10px] text-amber-700">Pax Tersedia</span>
+                        </div>
                       </div>
-                    ) : (
-                      <button
-                        onClick={handleToggleSouvenir}
-                        className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-1.5"
-                      >
-                        <Gift size={14} />
-                        <span>Berikan Souvenir</span>
-                      </button>
+
+                      {/* MODE SOUVENIR DIVISI */}
+                      {isSouvenirMode ? (
+                        <div className="p-4 bg-purple-50/60 rounded-2xl border border-purple-200 space-y-3">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-purple-900 flex items-center space-x-1.5">
+                              <Gift size={16} className="text-purple-700" />
+                              <span>Hak Souvenir: <strong>{maxEntitled} Paket Boleh Diambil</strong></span>
+                            </span>
+                            <span className="font-mono text-[11px] text-purple-700">
+                              Total Diambil: {taken}
+                            </span>
+                          </div>
+
+                          {maxEntitled <= 0 ? (
+                            <p className="text-xs text-purple-800 italic bg-white p-3 rounded-xl border border-purple-200 text-center">
+                              {hadir === 0
+                                ? 'Belum ada anggota yang check-in! Souvenir diberikan sesuai jumlah pax yang hadir.'
+                                : 'Semua hak souvenir untuk anggota yang sudah hadir telah diserahkan.'}
+                            </p>
+                          ) : isAuthorized ? (
+                            <div className="space-y-3 pt-1">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-stone-700">Jumlah Diserahkan:</label>
+                                <div className="flex items-center space-x-2 bg-white px-2 py-1 rounded-xl border border-purple-300">
+                                  <button
+                                    type="button"
+                                    onClick={() => setDivisiSouvenirCountInput((prev) => Math.max(1, prev - 1))}
+                                    disabled={divisiSouvenirCountInput <= 1}
+                                    className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold flex items-center justify-center cursor-pointer"
+                                  >
+                                    <Minus size={13} />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={maxEntitled}
+                                    value={divisiSouvenirCountInput}
+                                    onChange={(e) => {
+                                      const v = parseInt(e.target.value, 10);
+                                      if (!isNaN(v)) setDivisiSouvenirCountInput(Math.min(maxEntitled, Math.max(1, v)));
+                                    }}
+                                    className="w-12 text-center font-bold text-purple-950 font-mono outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setDivisiSouvenirCountInput((prev) => Math.min(maxEntitled, prev + 1))}
+                                    disabled={divisiSouvenirCountInput >= maxEntitled}
+                                    className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold flex items-center justify-center cursor-pointer"
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <input
+                                type="text"
+                                placeholder="Nama perwakilan pengambil (opsional)"
+                                value={divisiSouvenirNoteInput}
+                                onChange={(e) => setDivisiSouvenirNoteInput(e.target.value)}
+                                className="w-full px-3 py-2 bg-white rounded-xl border border-purple-200 text-xs outline-none"
+                              />
+
+                              <button
+                                onClick={handleConfirmDivisiSouvenirDirect}
+                                disabled={isSubmittingDivision}
+                                className="w-full py-3 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+                              >
+                                <Gift size={15} />
+                                <span>{isSubmittingDivision ? 'Menyimpan...' : `Serahkan ${divisiSouvenirCountInput} Paket Souvenir`}</span>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        /* MODE KEHADIRAN KLOTER DIVISI */
+                        <div className="p-4 bg-amber-50/60 rounded-2xl border border-gold-300 space-y-3">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-maroon flex items-center space-x-1.5">
+                              <Users2 size={16} className="text-maroon" />
+                              <span>Input Kloter Kehadiran</span>
+                            </span>
+                            <span className="font-mono text-[11px] text-amber-900 font-bold">
+                              Sisa Kuota: {sisa} Pax
+                            </span>
+                          </div>
+
+                          {sisa <= 0 ? (
+                            <p className="text-xs text-rose-700 font-bold italic bg-white p-3 rounded-xl border border-rose-200 text-center">
+                              Seluruh kuota ({totalQ} Pax) untuk divisi ini telah digunakan!
+                            </p>
+                          ) : isAuthorized ? (
+                            <div className="space-y-3 pt-1">
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-stone-700">Pax Hadir Saat Ini:</label>
+                                <div className="flex items-center space-x-2 bg-white px-2 py-1 rounded-xl border border-gold-300">
+                                  <button
+                                    type="button"
+                                    onClick={() => setDivisiPaxInput((prev) => Math.max(1, prev - 1))}
+                                    disabled={divisiPaxInput <= 1}
+                                    className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold flex items-center justify-center cursor-pointer"
+                                  >
+                                    <Minus size={13} />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={sisa}
+                                    value={divisiPaxInput}
+                                    onChange={(e) => {
+                                      const v = parseInt(e.target.value, 10);
+                                      if (!isNaN(v)) setDivisiPaxInput(Math.min(sisa, Math.max(1, v)));
+                                    }}
+                                    className="w-12 text-center font-bold text-maroon font-mono outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setDivisiPaxInput((prev) => Math.min(sisa, prev + 1))}
+                                    disabled={divisiPaxInput >= sisa}
+                                    className="w-7 h-7 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold flex items-center justify-center cursor-pointer"
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <input
+                                type="text"
+                                placeholder="Catatan rombongan (cth: Kloter 1 Bpk. Budi, dll.)"
+                                value={divisiNoteInput}
+                                onChange={(e) => setDivisiNoteInput(e.target.value)}
+                                className="w-full px-3 py-2 bg-white rounded-xl border border-stone-200 text-xs outline-none"
+                              />
+
+                              <button
+                                onClick={handleConfirmDivisiCheckinDirect}
+                                disabled={isSubmittingDivision}
+                                className="w-full py-3.5 rounded-xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                              >
+                                <CheckCircle2 size={16} />
+                                <span>{isSubmittingDivision ? 'Menyimpan...' : `Konfirmasi Check-in Kloter (+${divisiPaxInput} Pax)`}</span>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+
+                      {/* Riwayat Check-in Kloter */}
+                      {guest.checkin_history && guest.checkin_history.length > 0 && (
+                        <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-1.5">
+                          <span className="text-[10px] font-bold text-maroon uppercase tracking-wider flex items-center space-x-1">
+                            <History size={12} />
+                            <span>Riwayat Check-in ({guest.checkin_history.length} Kloter)</span>
+                          </span>
+                          <div className="space-y-1 max-h-28 overflow-y-auto custom-scrollbar">
+                            {guest.checkin_history.map((tx, idx) => (
+                              <div key={tx.id || idx} className="text-[11px] flex justify-between bg-white px-2 py-1 rounded border border-stone-100">
+                                <span>Kloter #{idx + 1}: <strong>+{tx.pax} Pax</strong> {tx.catatan ? `(${tx.catatan})` : ''}</span>
+                                <span className="font-mono text-stone-400">
+                                  {new Date(tx.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                /* JIKA BUKAN DIVISI: TAMPILKAN FLOW INDIVIDU NORMAL */
+                <>
+                  <div className="grid grid-cols-2 gap-4 py-2 border-y border-stone-100">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Tamu dari Pihak</p>
+                      <span className="inline-block mt-1 px-3 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 text-xs font-bold">
+                        {guest.pihak}
+                      </span>
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Jumlah Kehadiran</p>
+                      <p className="text-sm font-bold text-stone-900 mt-1 flex items-center space-x-1.5">
+                        <Users size={16} className="text-[#6B0F1A]" />
+                        <span>
+                          {guest.jumlah_hadir_konfirmasi || guest.jumlah_tamu} Orang
+                          {guest.jatah_tamu ? ` (Jatah: ${guest.jatah_tamu})` : ''}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* SOUVENIR STATUS CARD (1 PER UNDANGAN/KELUARGA) */}
+                  <div className="p-4 bg-amber-50/60 rounded-2xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center space-x-2.5">
+                      <Gift size={20} className="text-amber-700 shrink-0" />
+                      <div>
+                        <span className="text-xs font-bold text-stone-900 block">Status Souvenir (1 Paket per Keluarga)</span>
+                        <span className="text-[11px] text-stone-600 block">
+                          {guest.is_souvenir_given 
+                            ? `✓ Sudah diserahkan pada ${guest.souvenir_given_at ? new Date(guest.souvenir_given_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB' : 'lokasi'}` 
+                            : 'Belum diserahkan'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isAuthorized && (
+                      <div>
+                        {guest.is_souvenir_given ? (
+                          <div className="inline-flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-800 text-xs font-bold">
+                            <PackageCheck size={14} className="text-emerald-700" />
+                            <span>✓ Souvenir Diberikan</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleToggleSouvenir}
+                            className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-1.5"
+                          >
+                            <Gift size={14} />
+                            <span>Berikan Souvenir</span>
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
 
               {guest.no_whatsapp && (
                 <div className="flex items-center space-x-2 text-xs text-stone-600">

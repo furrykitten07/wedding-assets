@@ -30,7 +30,13 @@ import {
   QrCode,
   Download,
   Award,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Building2,
+  Users2,
+  Clock,
+  Gift,
+  User,
+  History
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
@@ -60,6 +66,7 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
   const [filterKategori, setFilterKategori] = useState('all');
   const [filterPasangan, setFilterPasangan] = useState('all'); // 'all' | 'pasangan' | 'sendiri'
   const [filterKategoriTamu, setFilterKategoriTamu] = useState('all'); // 'all' | 'VIP' | 'Reguler'
+  const [filterTipe, setFilterTipe] = useState<'all' | 'individu' | 'divisi'>('all');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -75,15 +82,21 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
   const [previewQrUrl, setPreviewQrUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Form State
+  // Form State (Mendukung Tamu Individu & Undangan Divisi / Kelompok)
   const [formData, setFormData] = useState({
+    is_divisi: false,
+    nama_divisi: '',
+    kuota_pax: 20,
+    souvenir_policy: 'per_pax' as 'per_pax' | 'per_undangan',
     nama_tamu: '',
+    pic_name: '',
     no_whatsapp: '',
     pihak: 'Fikri' as 'Fikri' | 'Nadya',
     kategori: 'Teman Kerja',
     kategori_tamu: 'Reguler' as 'VIP' | 'Reguler',
     membawa_pasangan: false,
-    jumlah_tambahan: 1
+    jumlah_tambahan: 1,
+    catatan: ''
   });
 
   const isStaff = (userEmail || '').toLowerCase().includes('staff') ||
@@ -93,6 +106,9 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
 
   // Helper untuk menghitung total pax tamu
   const getGuestPax = (g: Guest): number => {
+    if (g.is_divisi) {
+      return Number(g.kuota_pax || g.jatah_tamu || (1 + (g.membawa_pasangan ? Number(g.jumlah_tambahan || 0) : 0)));
+    }
     return 1 + (g.membawa_pasangan ? Number(g.jumlah_tambahan || 0) : 0);
   };
 
@@ -174,15 +190,65 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
         const resolvedTicketCode = matched?.ticket_code || t.ticket_code || `FN-${t.id?.substring(0, 6)?.toUpperCase()}`;
         const resolvedKategoriTamu = matched?.kategori_tamu || (t.kategori?.includes('Keluarga') ? 'VIP' : 'Reguler');
 
+        const isDivisi = Boolean(t.is_divisi || matched?.is_divisi || (t.kategori && t.kategori.toLowerCase().includes('divisi')));
+        const kuota = Number(t.kuota_pax || matched?.kuota_pax || matched?.jatah_tamu || getGuestPax(t));
+        const hadir = Number(matched?.pax_hadir || (matched?.is_attended ? (matched.jumlah_hadir_konfirmasi || 1) : 0));
+        const sisa = matched?.sisa_kuota !== undefined ? matched.sisa_kuota : Math.max(0, kuota - hadir);
+
         synchronizedGuests.push({
           ...t,
           ticket_code: resolvedTicketCode,
           kategori_tamu: resolvedKategoriTamu,
-          is_attended: Boolean(matched?.is_attended),
+          is_attended: Boolean(matched?.is_attended || hadir > 0),
           is_souvenir_given: Boolean(matched?.is_souvenir_given),
-          total_pax: getGuestPax(t)
+          is_divisi: isDivisi,
+          nama_divisi: t.nama_divisi || matched?.nama_divisi || t.nama_tamu,
+          kuota_pax: kuota,
+          pax_hadir: hadir,
+          sisa_kuota: sisa,
+          checkin_history: matched?.checkin_history || t.checkin_history || [],
+          souvenir_policy: t.souvenir_policy || matched?.souvenir_policy || 'per_pax',
+          souvenir_quota: t.souvenir_quota || matched?.souvenir_quota || kuota,
+          souvenir_taken: matched?.souvenir_taken || (matched?.is_souvenir_given ? 1 : 0),
+          souvenir_history: matched?.souvenir_history || t.souvenir_history || [],
+          total_pax: isDivisi ? kuota : getGuestPax(t)
         });
       }
+
+      // Tambahkan tamu buku_tamu divisi yang dibuat secara khusus dan belum ada di tabel tamu
+      bukuList.forEach((b) => {
+        if (b.is_divisi && !synchronizedGuests.some((sg) => sg.ticket_code === b.ticket_code)) {
+          const kuota = Number(b.kuota_pax || b.jatah_tamu || 1);
+          const hadir = Number(b.pax_hadir || (b.is_attended ? 1 : 0));
+          const sisa = b.sisa_kuota !== undefined ? b.sisa_kuota : Math.max(0, kuota - hadir);
+          synchronizedGuests.push({
+            id: b.id,
+            nama_tamu: b.nama_tamu,
+            nama_keluarga: b.nama_keluarga || b.nama_tamu,
+            no_whatsapp: b.no_whatsapp,
+            pihak: (b.pihak?.includes('Nadya') ? 'Nadya' : 'Fikri') as 'Fikri' | 'Nadya',
+            kategori: 'Divisi / Kelompok',
+            kategori_tamu: b.kategori_tamu || 'Reguler',
+            ticket_code: b.ticket_code,
+            membawa_pasangan: true,
+            jumlah_tambahan: Math.max(0, kuota - 1),
+            total_pax: kuota,
+            is_attended: Boolean(b.is_attended || hadir > 0),
+            is_souvenir_given: Boolean(b.is_souvenir_given),
+            is_divisi: true,
+            nama_divisi: b.nama_divisi || b.nama_tamu,
+            kuota_pax: kuota,
+            pax_hadir: hadir,
+            sisa_kuota: sisa,
+            checkin_history: b.checkin_history || [],
+            souvenir_policy: b.souvenir_policy || 'per_pax',
+            souvenir_quota: b.souvenir_quota || kuota,
+            souvenir_taken: b.souvenir_taken || 0,
+            souvenir_history: b.souvenir_history || [],
+            created_at: b.created_at || new Date().toISOString()
+          });
+        }
+      });
 
       setAllGuests(synchronizedGuests);
     } catch (error: any) {
@@ -215,6 +281,9 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
     const nadyaPax = nadyaGuests.reduce((acc, g) => acc + getGuestPax(g), 0);
 
     const vipGuests = allGuests.filter((g) => g.kategori_tamu === 'VIP');
+    const divisiGuests = allGuests.filter((g) => g.is_divisi);
+    const divisiPax = divisiGuests.reduce((acc, g) => acc + getGuestPax(g), 0);
+    const divisiHadirPax = divisiGuests.reduce((acc, g) => acc + (g.pax_hadir || 0), 0);
 
     return {
       totalInvitations,
@@ -223,7 +292,10 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       fikriPax,
       nadyaCount: nadyaGuests.length,
       nadyaPax,
-      vipCount: vipGuests.length
+      vipCount: vipGuests.length,
+      divisiCount: divisiGuests.length,
+      divisiPax,
+      divisiHadirPax
     };
   }, [allGuests]);
 
@@ -233,6 +305,7 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       const search = searchTerm.toLowerCase().trim();
       const matchSearch =
         !search ||
+        (g.nama_divisi && g.nama_divisi.toLowerCase().includes(search)) ||
         g.nama_tamu.toLowerCase().includes(search) ||
         g.kategori.toLowerCase().includes(search) ||
         (g.ticket_code && g.ticket_code.toLowerCase().includes(search)) ||
@@ -244,17 +317,22 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
 
       const matchPasangan =
         filterPasangan === 'all' ||
-        (filterPasangan === 'pasangan' && g.membawa_pasangan) ||
-        (filterPasangan === 'sendiri' && !g.membawa_pasangan);
+        (filterPasangan === 'pasangan' && (g.membawa_pasangan || g.is_divisi)) ||
+        (filterPasangan === 'sendiri' && !g.membawa_pasangan && !g.is_divisi);
 
-      return matchSearch && matchPihak && matchKategori && matchKategoriTamu && matchPasangan;
+      const matchTipe =
+        filterTipe === 'all' ||
+        (filterTipe === 'divisi' && g.is_divisi) ||
+        (filterTipe === 'individu' && !g.is_divisi);
+
+      return matchSearch && matchPihak && matchKategori && matchKategoriTamu && matchPasangan && matchTipe;
     });
-  }, [allGuests, searchTerm, filterPihak, filterKategori, filterKategoriTamu, filterPasangan]);
+  }, [allGuests, searchTerm, filterPihak, filterKategori, filterKategoriTamu, filterPasangan, filterTipe]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterPihak, filterKategori, filterKategoriTamu, filterPasangan, pageSize]);
+  }, [searchTerm, filterPihak, filterKategori, filterKategoriTamu, filterPasangan, filterTipe, pageSize]);
 
   // Pagination Computations
   const totalItems = filteredGuests.length;
@@ -278,6 +356,7 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
     setFilterKategori('all');
     setFilterKategoriTamu('all');
     setFilterPasangan('all');
+    setFilterTipe('all');
     setCurrentPage(1);
   };
 
@@ -286,23 +365,34 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
     filterPihak !== 'all' ||
     filterKategori !== 'all' ||
     filterKategoriTamu !== 'all' ||
+    filterPasangan !== 'all' ||
+    filterTipe !== 'all';
+    filterPihak !== 'all' ||
+    filterKategori !== 'all' ||
+    filterKategoriTamu !== 'all' ||
     filterPasangan !== 'all';
 
   // Form handlers
-  const handleOpenAddModal = () => {
+  const handleOpenAddModal = (asDivisi: boolean = false) => {
     if (isStaff) {
       toast.error('Akun Staff hanya memiliki hak akses untuk melihat daftar tamu.');
       return;
     }
     setEditingGuest(null);
     setFormData({
+      is_divisi: asDivisi,
+      nama_divisi: '',
+      kuota_pax: 20,
+      souvenir_policy: 'per_pax',
       nama_tamu: '',
+      pic_name: '',
       no_whatsapp: '',
       pihak: 'Fikri',
-      kategori: 'Teman Kerja',
+      kategori: asDivisi ? 'Divisi / Kelompok' : 'Teman Kerja',
       kategori_tamu: 'Reguler',
-      membawa_pasangan: false,
-      jumlah_tambahan: 1
+      membawa_pasangan: asDivisi,
+      jumlah_tambahan: asDivisi ? 19 : 1,
+      catatan: ''
     });
     setIsFormModalOpen(true);
   };
@@ -313,14 +403,21 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       return;
     }
     setEditingGuest(guest);
+    const isDiv = Boolean(guest.is_divisi);
     setFormData({
+      is_divisi: isDiv,
+      nama_divisi: guest.nama_divisi || guest.nama_tamu,
+      kuota_pax: guest.kuota_pax || guest.total_pax || 20,
+      souvenir_policy: guest.souvenir_policy || 'per_pax',
       nama_tamu: guest.nama_tamu,
+      pic_name: '',
       no_whatsapp: guest.no_whatsapp || '',
       pihak: guest.pihak,
       kategori: guest.kategori,
       kategori_tamu: guest.kategori_tamu || 'Reguler',
       membawa_pasangan: guest.membawa_pasangan,
-      jumlah_tambahan: guest.jumlah_tambahan || 1
+      jumlah_tambahan: guest.jumlah_tambahan || 1,
+      catatan: ''
     });
     setIsFormModalOpen(true);
   };
@@ -332,23 +429,40 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       toast.error('Akun Staff hanya memiliki hak akses untuk melihat daftar tamu.');
       return;
     }
-    if (!formData.nama_tamu.trim()) {
-      toast.error('Nama tamu wajib diisi!');
+
+    const isDivisi = formData.is_divisi;
+    const finalNama = isDivisi 
+      ? (formData.nama_divisi.trim() || formData.nama_tamu.trim()) 
+      : formData.nama_tamu.trim();
+
+    if (!finalNama) {
+      toast.error(isDivisi ? 'Nama Divisi / Kelompok wajib diisi!' : 'Nama tamu wajib diisi!');
       return;
     }
 
-    const additionalCount = formData.membawa_pasangan
-      ? Math.min(30, Math.max(1, Number(formData.jumlah_tambahan) || 1))
-      : 0;
-    const paxQuota = 1 + additionalCount;
+    const kuota = isDivisi 
+      ? Math.max(1, Number(formData.kuota_pax) || 1)
+      : (1 + (formData.membawa_pasangan ? Math.min(30, Math.max(1, Number(formData.jumlah_tambahan) || 1)) : 0));
+
+    const additionalCount = isDivisi ? Math.max(0, kuota - 1) : (formData.membawa_pasangan ? kuota - 1 : 0);
 
     const tamuPayload = {
-      nama_tamu: formData.nama_tamu.trim(),
+      nama_tamu: finalNama,
+      nama_keluarga: finalNama,
       no_whatsapp: formData.no_whatsapp ? formData.no_whatsapp.trim() : null,
       pihak: formData.pihak,
-      kategori: formData.kategori,
-      membawa_pasangan: formData.membawa_pasangan,
-      jumlah_tambahan: additionalCount
+      kategori: isDivisi ? 'Divisi / Kelompok' : formData.kategori,
+      kategori_tamu: formData.kategori_tamu,
+      membawa_pasangan: isDivisi ? true : formData.membawa_pasangan,
+      jumlah_tambahan: additionalCount,
+      is_divisi: isDivisi,
+      nama_divisi: isDivisi ? finalNama : null,
+      kuota_pax: kuota,
+      pax_hadir: editingGuest?.pax_hadir || 0,
+      sisa_kuota: Math.max(0, kuota - (editingGuest?.pax_hadir || 0)),
+      souvenir_policy: formData.souvenir_policy,
+      souvenir_quota: kuota,
+      souvenir_taken: editingGuest?.souvenir_taken || 0
     };
 
     try {
@@ -364,13 +478,21 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
         // 2. Sinkronisasi update ke tabel buku_tamu
         try {
           const bukuUpdatePayload = {
-            nama_tamu: formData.nama_tamu.trim(),
-            nama_keluarga: formData.nama_tamu.trim(),
+            nama_tamu: finalNama,
+            nama_keluarga: finalNama,
             no_whatsapp: formData.no_whatsapp ? formData.no_whatsapp.trim() : null,
             pihak: formData.pihak === 'Nadya' ? 'Pihak Nadya' : 'Pihak Fikri',
             kategori_tamu: formData.kategori_tamu,
-            jatah_tamu: paxQuota,
-            jumlah_tamu: paxQuota
+            jatah_tamu: kuota,
+            jumlah_tamu: kuota,
+            is_divisi: isDivisi,
+            nama_divisi: isDivisi ? finalNama : null,
+            kuota_pax: kuota,
+            pax_hadir: editingGuest.pax_hadir || 0,
+            sisa_kuota: Math.max(0, kuota - (editingGuest.pax_hadir || 0)),
+            souvenir_policy: formData.souvenir_policy,
+            souvenir_quota: kuota,
+            souvenir_taken: editingGuest.souvenir_taken || 0
           };
 
           if (editingGuest.ticket_code) {
@@ -382,8 +504,8 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
           console.warn('Gagal sinkronisasi update ke buku_tamu:', syncErr);
         }
 
-        logActivity(userEmail, 'update', 'Tamu', `Update tamu: ${formData.nama_tamu}`);
-        toast.success(`Data ${formData.nama_tamu} berhasil diperbarui di Daftar Tamu & Buku Tamu!`);
+        logActivity(userEmail, 'update', 'Tamu', `Update tamu: ${finalNama}`);
+        toast.success(`Data ${finalNama} berhasil diperbarui di Daftar Tamu & Buku Tamu!`);
 
         if (viewingGuest && viewingGuest.id === editingGuest.id) {
           setViewingGuest({ ...viewingGuest, ...tamuPayload, kategori_tamu: formData.kategori_tamu });
@@ -391,7 +513,7 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       } else {
         // 1. Generate Kode Tiket Barcode Unik
         const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        const newTicketCode = `FN-${randomCode}`;
+        const newTicketCode = isDivisi ? `FN-DIV-${randomCode}` : `FN-${randomCode}`;
 
         // 2. Insert ke tabel tamu
         const { error: tamuError } = await supabase.from('tamu').insert([tamuPayload]);
@@ -400,16 +522,26 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
         // 3. Otomatis buatkan data QR & link unik di buku_tamu agar langsung muncul di menu Buku Tamu & Scan!
         const bukuPayload = {
           ticket_code: newTicketCode,
-          nama_tamu: formData.nama_tamu.trim(),
-          nama_keluarga: formData.nama_tamu.trim(),
+          nama_tamu: finalNama,
+          nama_keluarga: finalNama,
           no_whatsapp: formData.no_whatsapp ? formData.no_whatsapp.trim() : null,
           pihak: formData.pihak === 'Nadya' ? 'Pihak Nadya' : 'Pihak Fikri',
           kategori_tamu: formData.kategori_tamu,
-          jatah_tamu: paxQuota,
-          jumlah_tamu: paxQuota,
-          jumlah_hadir_konfirmasi: paxQuota,
+          jatah_tamu: kuota,
+          jumlah_tamu: kuota,
+          jumlah_hadir_konfirmasi: kuota,
           is_attended: false,
-          is_souvenir_given: false
+          is_souvenir_given: false,
+          is_divisi: isDivisi,
+          nama_divisi: isDivisi ? finalNama : null,
+          kuota_pax: kuota,
+          pax_hadir: 0,
+          sisa_kuota: kuota,
+          checkin_history: [],
+          souvenir_policy: formData.souvenir_policy,
+          souvenir_quota: kuota,
+          souvenir_taken: 0,
+          souvenir_history: []
         };
 
         try {
@@ -418,8 +550,8 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
           console.warn('Gagal insert buku_tamu:', bukuErr);
         }
 
-        logActivity(userEmail, 'create', 'Tamu', `Tambah tamu: ${formData.nama_tamu} (${newTicketCode})`);
-        toast.success(`Tamu ${formData.nama_tamu} ditambahkan! Kode ${newTicketCode} & QR otomatis aktif di Buku Tamu & Scan.`);
+        logActivity(userEmail, 'create', 'Tamu', `Tambah ${isDivisi ? 'undangan divisi' : 'tamu'}: ${finalNama} (${newTicketCode})`);
+        toast.success(`${isDivisi ? 'Undangan Divisi' : 'Tamu'} ${finalNama} berhasil dibuat! Kode ${newTicketCode} & QR otomatis aktif.`);
       }
 
       setIsFormModalOpen(false);
@@ -589,13 +721,24 @@ Link RSVP: ${rsvpUrl}`;
 
           {/* Add Guest Button (Pengantin) / Mode Staff Indicator (Staff) */}
           {!isStaff ? (
-            <button
-              onClick={handleOpenAddModal}
-              className="px-6 py-3.5 rounded-2xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs tracking-wider uppercase shadow-xl border border-gold/40 flex items-center space-x-2 transition-all active:scale-95 group cursor-pointer"
-            >
-              <UserPlus size={18} className="group-hover:scale-110 transition-transform text-gold" />
-              <span>+ Tambah Tamu (Auto QR)</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                onClick={() => handleOpenAddModal(false)}
+                className="px-5 py-3.5 rounded-2xl bg-maroon hover:bg-maroon-800 text-gold font-bold text-xs tracking-wider uppercase shadow-xl border border-gold/40 flex items-center space-x-2 transition-all active:scale-95 group cursor-pointer"
+              >
+                <UserPlus size={17} className="group-hover:scale-110 transition-transform text-gold" />
+                <span>+ Tamu Individu</span>
+              </button>
+
+              <button
+                onClick={() => handleOpenAddModal(true)}
+                className="px-5 py-3.5 rounded-2xl bg-gradient-to-r from-amber-700 via-amber-800 to-amber-900 hover:from-amber-800 hover:to-amber-950 text-gold font-bold text-xs tracking-wider uppercase shadow-xl border border-gold/60 flex items-center space-x-2 transition-all active:scale-95 group cursor-pointer"
+                title="Buat satu undangan untuk 1 divisi / kelompok dengan kuota pax & 1 QR Code bersama"
+              >
+                <Building2 size={17} className="group-hover:scale-110 transition-transform text-gold" />
+                <span>+ Undangan Divisi</span>
+              </button>
+            </div>
           ) : (
             <div className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-50 to-gold-50 border border-amber-300 text-amber-900 font-bold text-xs flex items-center space-x-2 shadow-sm">
               <Award size={16} className="text-amber-700" />
@@ -764,6 +907,17 @@ Link RSVP: ${rsvpUrl}`;
               <option value="sendiri">Sendiri (1 Pax)</option>
             </select>
 
+            {/* Filter Tipe Undangan (Individu vs Divisi) */}
+            <select
+              value={filterTipe}
+              onChange={(e) => setFilterTipe(e.target.value as any)}
+              className="px-3 py-2.5 bg-amber-50/60 border border-amber-300 rounded-2xl text-xs font-bold text-amber-900 outline-none focus:border-maroon cursor-pointer shadow-sm"
+            >
+              <option value="all">Semua Tipe Undangan</option>
+              <option value="individu">👤 Individu / Keluarga</option>
+              <option value="divisi">🏢 Undangan Divisi / Kelompok</option>
+            </select>
+
             {/* Reset Filters */}
             {isAnyFilterActive && (
               <button
@@ -864,23 +1018,34 @@ Link RSVP: ${rsvpUrl}`;
                         <div className="flex flex-col">
                           <button
                             onClick={() => setViewingGuest(guest)}
-                            className="text-left font-serif font-bold text-maroon hover:text-maroon-800 text-sm hover:underline flex items-center space-x-1.5 cursor-pointer"
+                            className="text-left font-serif font-bold text-maroon hover:text-maroon-800 text-sm hover:underline flex items-center flex-wrap gap-1 cursor-pointer"
                           >
-                            <span>{guest.nama_tamu}</span>
+                            <span>{guest.nama_divisi || guest.nama_tamu}</span>
+                            {guest.is_divisi && (
+                              <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-700 to-amber-900 text-gold text-[9px] font-black uppercase tracking-wider shadow-xs">
+                                <Building2 size={10} />
+                                <span>DIVISI</span>
+                              </span>
+                            )}
                             {guest.kategori_tamu === 'VIP' && (
-                              <span className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs ml-1">
+                              <span className="inline-flex items-center space-x-0.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[9px] font-black uppercase tracking-wider shadow-xs ml-0.5">
                                 <Award size={10} />
                                 <span>VIP</span>
                               </span>
                             )}
                           </button>
-                          <div className="flex items-center space-x-2 mt-1">
+                          <div className="flex items-center flex-wrap gap-1.5 mt-1">
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-stone-100 text-stone-600 uppercase tracking-wider">
-                              {guest.kategori}
+                              {guest.is_divisi ? 'Undangan Divisi / Kelompok' : guest.kategori}
                             </span>
-                            {guest.membawa_pasangan && (
+                            {!guest.is_divisi && guest.membawa_pasangan && (
                               <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
                                 + Pasangan / Keluarga
+                              </span>
+                            )}
+                            {guest.is_divisi && (
+                              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                                1 QR Bersama • Kuota {guest.kuota_pax || pax} Pax
                               </span>
                             )}
                           </div>
@@ -899,7 +1064,7 @@ Link RSVP: ${rsvpUrl}`;
                           <button
                             onClick={() => handleOpenPreview(guest)}
                             className="p-1.5 rounded-lg bg-gold-50 text-gold-900 hover:bg-gold-100 transition-colors shadow-2xs cursor-pointer"
-                            title="Buka QR Barcode untuk Discan"
+                            title={guest.is_divisi ? "Buka Barcode Divisi (Kehadiran & Souvenir)" : "Buka QR Barcode untuk Discan"}
                           >
                             <QrCode size={14} />
                           </button>
@@ -908,7 +1073,7 @@ Link RSVP: ${rsvpUrl}`;
                           <button
                             onClick={() => handleCopyGuestLink(guest)}
                             className="p-1.5 rounded-lg bg-white hover:bg-stone-200 text-stone-600 transition-colors shadow-2xs cursor-pointer"
-                            title="Salin Tautan RSVP Tamu"
+                            title="Salin Tautan Undangan"
                           >
                             <LinkIcon size={14} />
                           </button>
@@ -930,16 +1095,31 @@ Link RSVP: ${rsvpUrl}`;
 
                       {/* Pax */}
                       <td className="px-6 py-4 text-center">
-                        <div className="inline-flex flex-col items-center">
-                          <span className="inline-flex items-center justify-center min-w-[36px] px-2.5 py-1 bg-maroon text-gold rounded-xl font-mono font-bold text-xs shadow-sm">
-                            {pax} Pax
-                          </span>
-                          {guest.membawa_pasangan && (
-                            <span className="text-[9px] text-stone-400 mt-0.5 font-bold">
-                              1 + {guest.jumlah_tambahan}
+                        {guest.is_divisi ? (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-gradient-to-r from-amber-800 to-maroon text-gold rounded-xl font-mono font-bold text-xs shadow-sm">
+                              <span>{guest.pax_hadir || 0} / {guest.kuota_pax || pax} Pax</span>
                             </span>
-                          )}
-                        </div>
+                            <span className={`text-[9px] mt-0.5 font-bold ${
+                              (guest.sisa_kuota ?? ((guest.kuota_pax || pax) - (guest.pax_hadir || 0))) > 0
+                                ? 'text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded'
+                                : 'text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded'
+                            }`}>
+                              Sisa: {guest.sisa_kuota ?? Math.max(0, (guest.kuota_pax || pax) - (guest.pax_hadir || 0))} Pax
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex flex-col items-center">
+                            <span className="inline-flex items-center justify-center min-w-[36px] px-2.5 py-1 bg-maroon text-gold rounded-xl font-mono font-bold text-xs shadow-sm">
+                              {pax} Pax
+                            </span>
+                            {guest.membawa_pasangan && (
+                              <span className="text-[9px] text-stone-400 mt-0.5 font-bold">
+                                1 + {guest.jumlah_tambahan}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* WhatsApp Undangan */}
@@ -1236,13 +1416,26 @@ Link RSVP: ${rsvpUrl}`;
           <div className="space-y-6">
             
             {/* Guest Banner Header */}
-            <div className="p-6 rounded-3xl bg-gradient-to-br from-amber-50 via-stone-50 to-white border-2 border-gold-200 text-center relative overflow-hidden shadow-inner">
-              <div className="w-16 h-16 mx-auto rounded-3xl bg-maroon text-gold flex items-center justify-center font-serif text-2xl font-bold shadow-md border-2 border-gold-300 mb-3">
-                {viewingGuest.nama_tamu.charAt(0).toUpperCase()}
+            <div className={`p-6 rounded-3xl border-2 text-center relative overflow-hidden shadow-inner ${
+              viewingGuest.is_divisi
+                ? 'bg-gradient-to-br from-amber-50 via-stone-50 to-amber-100/50 border-amber-300'
+                : 'bg-gradient-to-br from-amber-50 via-stone-50 to-white border-gold-200'
+            }`}>
+              <div className={`w-16 h-16 mx-auto rounded-3xl flex items-center justify-center font-serif text-2xl font-bold shadow-md border-2 mb-3 ${
+                viewingGuest.is_divisi
+                  ? 'bg-gradient-to-br from-amber-800 to-maroon text-gold border-gold-400'
+                  : 'bg-maroon text-gold border-gold-300'
+              }`}>
+                {viewingGuest.is_divisi ? <Building2 size={28} /> : viewingGuest.nama_tamu.charAt(0).toUpperCase()}
               </div>
 
-              <h2 className="font-serif text-2xl font-bold text-maroon flex items-center justify-center space-x-2">
-                <span>{viewingGuest.nama_tamu}</span>
+              <h2 className="font-serif text-2xl font-bold text-maroon flex items-center justify-center flex-wrap gap-2">
+                <span>{viewingGuest.nama_divisi || viewingGuest.nama_tamu}</span>
+                {viewingGuest.is_divisi && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-700 to-amber-900 text-gold text-[10px] font-black tracking-wider uppercase shadow-xs">
+                    🏢 UNDANGAN DIVISI
+                  </span>
+                )}
                 {viewingGuest.kategori_tamu === 'VIP' && (
                   <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black tracking-wider uppercase shadow-xs">
                     VIP
@@ -1266,115 +1459,275 @@ Link RSVP: ${rsvpUrl}`;
                 </span>
 
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-stone-200 text-stone-800">
-                  {viewingGuest.kategori}
+                  {viewingGuest.is_divisi ? 'Undangan Divisi / Kelompok' : viewingGuest.kategori}
                 </span>
               </div>
             </div>
 
-            {/* Information Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              
-              {/* Estimasi Pax Breakdown */}
-              <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-2">
-                <div className="flex items-center justify-between text-xs text-stone-500 font-bold uppercase tracking-wider">
-                  <span>Estimasi Kehadiran</span>
-                  <Sparkles size={14} className="text-gold" />
-                </div>
-                <div className="flex items-baseline space-x-2">
-                  <span className="text-3xl font-serif font-bold text-maroon">
-                    {getGuestPax(viewingGuest)}
-                  </span>
-                  <span className="text-xs font-bold text-stone-700">Pax Total</span>
-                </div>
-                <p className="text-[11px] text-stone-500">
-                  {viewingGuest.membawa_pasangan ? (
-                    <>1 Tamu Utama + <strong>{viewingGuest.jumlah_tambahan} Pendamping</strong></>
-                  ) : (
-                    'Hadir Sendiri (1 Pax)'
-                  )}
-                </p>
-              </div>
-
-              {/* Status Pasangan */}
-              <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-2">
-                <div className="flex items-center justify-between text-xs text-stone-500 font-bold uppercase tracking-wider">
-                  <span>Status Pendamping</span>
-                  <Heart size={14} className="text-rose-500" />
-                </div>
-                <div className="mt-1">
-                  <span
-                    className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold ${
-                      viewingGuest.membawa_pasangan
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-stone-200 text-stone-700'
-                    }`}
-                  >
-                    {viewingGuest.membawa_pasangan
-                      ? '✓ Membawa Pasangan / Keluarga'
-                      : 'Hadir Tanpa Pendamping'}
-                  </span>
-                </div>
-                <p className="text-[11px] text-stone-500">
-                  {viewingGuest.membawa_pasangan
-                    ? `Tambahan kursi: ${viewingGuest.jumlah_tambahan} orang`
-                    : '1 Kursi disiapkan'}
-                </p>
-              </div>
-
-              {/* WhatsApp Contact */}
-              <div className="sm:col-span-2 p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-800">
-                  <span className="flex items-center space-x-1.5">
-                    <Phone size={14} />
-                    <span>Kontak WhatsApp</span>
-                  </span>
-                  {viewingGuest.no_whatsapp && (
-                    <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                      Tersedia
+            {/* Information Grid: Divisi vs Individu */}
+            {viewingGuest.is_divisi ? (
+              <div className="space-y-4">
+                {/* 4 Bento Cards for Division Quota & Status */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 text-center">
+                    <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider block">Total Kuota</span>
+                    <span className="text-2xl font-serif font-bold text-maroon mt-1 block">
+                      {viewingGuest.kuota_pax || viewingGuest.total_pax}
                     </span>
-                  )}
-                </div>
-
-                {viewingGuest.no_whatsapp ? (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                    <span className="font-mono text-base font-bold text-emerald-950">
-                      {viewingGuest.no_whatsapp}
-                    </span>
-                    <a
-                      href={getWhatsAppLink(viewingGuest)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
-                    >
-                      <MessageCircle size={15} />
-                      <span>Kirim Undangan WhatsApp</span>
-                      <ExternalLink size={13} />
-                    </a>
+                    <span className="text-[10px] text-stone-400">Pax Anggota</span>
                   </div>
-                ) : (
-                  <p className="text-xs text-stone-500 italic">
-                    Nomor WhatsApp belum dicantumkan untuk tamu ini.
-                  </p>
-                )}
-              </div>
 
-              {/* Tanggal Didaftarkan */}
-              {viewingGuest.created_at && (
-                <div className="sm:col-span-2 flex items-center justify-between text-xs text-stone-400 px-1 pt-1">
-                  <span className="flex items-center space-x-1.5">
-                    <Calendar size={13} />
-                    <span>Didaftarkan pada:</span>
-                  </span>
-                  <span className="font-mono font-bold text-stone-600">
-                    {new Date(viewingGuest.created_at).toLocaleString('id-ID', {
-                      dateStyle: 'long',
-                      timeStyle: 'short'
-                    })}
-                  </span>
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
+                    <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider block">Sudah Hadir</span>
+                    <span className="text-2xl font-serif font-bold text-emerald-800 mt-1 block">
+                      {viewingGuest.pax_hadir || 0}
+                    </span>
+                    <span className="text-[10px] text-emerald-600 font-semibold">Pax Check-in</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-center">
+                    <span className="text-[10px] text-amber-800 font-bold uppercase tracking-wider block">Sisa Kuota</span>
+                    <span className="text-2xl font-serif font-bold text-amber-900 mt-1 block">
+                      {viewingGuest.sisa_kuota ?? Math.max(0, (viewingGuest.kuota_pax || viewingGuest.total_pax) - (viewingGuest.pax_hadir || 0))}
+                    </span>
+                    <span className="text-[10px] text-amber-700 font-semibold">Pax Tersedia</span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-purple-50 border border-purple-200 text-center">
+                    <span className="text-[10px] text-purple-700 font-bold uppercase tracking-wider block">Souvenir</span>
+                    <span className="text-2xl font-serif font-bold text-purple-900 mt-1 block">
+                      {viewingGuest.souvenir_taken || 0}
+                    </span>
+                    <span className="text-[10px] text-purple-600 font-semibold">
+                      /{viewingGuest.souvenir_policy === 'per_undangan' ? 1 : (viewingGuest.pax_hadir || viewingGuest.kuota_pax || 1)} Diambil
+                    </span>
+                  </div>
                 </div>
-              )}
 
-            </div>
+                {/* Riwayat Check-in Kloter Kehadiran */}
+                <div className="p-4 rounded-2xl bg-white border border-stone-200 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-maroon uppercase tracking-wider flex items-center space-x-1.5">
+                      <History size={14} />
+                      <span>Riwayat Check-in Kloter ({viewingGuest.checkin_history?.length || 0} Transaksi)</span>
+                    </span>
+                    <span className="text-[11px] text-stone-500 font-mono">
+                      Akumulasi: {viewingGuest.pax_hadir || 0} Pax
+                    </span>
+                  </div>
+
+                  {(!viewingGuest.checkin_history || viewingGuest.checkin_history.length === 0) ? (
+                    <div className="p-4 text-center bg-stone-50 rounded-xl text-stone-400 text-xs italic">
+                      Belum ada anggota rombongan yang check-in menggunakan QR ini.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                      {viewingGuest.checkin_history.map((tx, idx) => (
+                        <div key={tx.id || idx} className="p-2.5 bg-stone-50 rounded-xl border border-stone-200 flex items-center justify-between text-xs">
+                          <div className="flex items-center space-x-2">
+                            <span className="w-6 h-6 rounded-full bg-maroon text-gold font-bold text-[10px] flex items-center justify-center">
+                              #{idx + 1}
+                            </span>
+                            <div>
+                              <p className="font-bold text-stone-800">
+                                +{tx.pax} Pax Hadir {tx.catatan ? `• ${tx.catatan}` : ''}
+                              </p>
+                              <p className="text-[10px] text-stone-400">
+                                Petugas: <span className="font-semibold text-stone-600">{tx.petugas || 'Resepsi'}</span>
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[11px] font-mono text-stone-500">
+                            {new Date(tx.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Riwayat Serah Terima Souvenir */}
+                <div className="p-4 rounded-2xl bg-white border border-stone-200 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-900 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Gift size={14} className="text-amber-700" />
+                      <span>Riwayat Serah Terima Souvenir ({viewingGuest.souvenir_history?.length || 0} Transaksi)</span>
+                    </span>
+                    <span className="text-[11px] text-amber-800 font-bold">
+                      Kebijakan: {viewingGuest.souvenir_policy === 'per_undangan' ? '1 Paket / Undangan' : '1 Paket / Pax Hadir'}
+                    </span>
+                  </div>
+
+                  {(!viewingGuest.souvenir_history || viewingGuest.souvenir_history.length === 0) ? (
+                    <div className="p-4 text-center bg-stone-50 rounded-xl text-stone-400 text-xs italic">
+                      Belum ada souvenir yang diserahkan untuk rombongan ini.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+                      {viewingGuest.souvenir_history.map((sv, idx) => (
+                        <div key={sv.id || idx} className="p-2.5 bg-amber-50/50 rounded-xl border border-amber-200 flex items-center justify-between text-xs">
+                          <div className="flex items-center space-x-2">
+                            <span className="w-6 h-6 rounded-full bg-amber-700 text-white font-bold text-[10px] flex items-center justify-center">
+                              #{idx + 1}
+                            </span>
+                            <div>
+                              <p className="font-bold text-amber-950">
+                                {sv.jumlah} Souvenir Diserahkan {sv.catatan ? `• ${sv.catatan}` : ''}
+                              </p>
+                              <p className="text-[10px] text-stone-400">
+                                Petugas: <span className="font-semibold text-stone-600">{sv.petugas || 'Resepsi'}</span>
+                              </p>
+                            </div>
+                          </div>
+                          <span className="text-[11px] font-mono text-stone-500">
+                            {new Date(sv.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* WhatsApp Contact PIC */}
+                <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-800">
+                    <span className="flex items-center space-x-1.5">
+                      <Phone size={14} />
+                      <span>Kontak WhatsApp PIC Divisi</span>
+                    </span>
+                    {viewingGuest.no_whatsapp && (
+                      <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        Tersedia
+                      </span>
+                    )}
+                  </div>
+
+                  {viewingGuest.no_whatsapp ? (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                      <span className="font-mono text-base font-bold text-emerald-950">
+                        {viewingGuest.no_whatsapp}
+                      </span>
+                      <a
+                        href={getWhatsAppLink(viewingGuest)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                      >
+                        <MessageCircle size={15} />
+                        <span>Kirim Link Undangan ke PIC WhatsApp</span>
+                        <ExternalLink size={13} />
+                      </a>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-stone-500 italic">
+                      Nomor WhatsApp PIC belum dicantumkan.
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Estimasi Pax Breakdown */}
+                <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-stone-500 font-bold uppercase tracking-wider">
+                    <span>Estimasi Kehadiran</span>
+                    <Sparkles size={14} className="text-gold" />
+                  </div>
+                  <div className="flex items-baseline space-x-2">
+                    <span className="text-3xl font-serif font-bold text-maroon">
+                      {getGuestPax(viewingGuest)}
+                    </span>
+                    <span className="text-xs font-bold text-stone-700">Pax Total</span>
+                  </div>
+                  <p className="text-[11px] text-stone-500">
+                    {viewingGuest.membawa_pasangan ? (
+                      <>1 Tamu Utama + <strong>{viewingGuest.jumlah_tambahan} Pendamping</strong></>
+                    ) : (
+                      'Hadir Sendiri (1 Pax)'
+                    )}
+                  </p>
+                </div>
+
+                {/* Status Pasangan */}
+                <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-stone-500 font-bold uppercase tracking-wider">
+                    <span>Status Pendamping</span>
+                    <Heart size={14} className="text-rose-500" />
+                  </div>
+                  <div className="mt-1">
+                    <span
+                      className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold ${
+                        viewingGuest.membawa_pasangan
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-stone-200 text-stone-700'
+                      }`}
+                    >
+                      {viewingGuest.membawa_pasangan
+                        ? '✓ Membawa Pasangan / Keluarga'
+                        : 'Hadir Tanpa Pendamping'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-stone-500">
+                    {viewingGuest.membawa_pasangan
+                      ? `Tambahan kursi: ${viewingGuest.jumlah_tambahan} orang`
+                      : '1 Kursi disiapkan'}
+                  </p>
+                </div>
+
+                {/* WhatsApp Contact */}
+                <div className="sm:col-span-2 p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-800">
+                    <span className="flex items-center space-x-1.5">
+                      <Phone size={14} />
+                      <span>Kontak WhatsApp</span>
+                    </span>
+                    {viewingGuest.no_whatsapp && (
+                      <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                        Tersedia
+                      </span>
+                    )}
+                  </div>
+
+                  {viewingGuest.no_whatsapp ? (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                      <span className="font-mono text-base font-bold text-emerald-950">
+                        {viewingGuest.no_whatsapp}
+                      </span>
+                      <a
+                        href={getWhatsAppLink(viewingGuest)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2 cursor-pointer"
+                      >
+                        <MessageCircle size={15} />
+                        <span>Kirim Undangan WhatsApp</span>
+                        <ExternalLink size={13} />
+                      </a>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-stone-500 italic">
+                      Nomor WhatsApp belum dicantumkan untuk tamu ini.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tanggal Didaftarkan */}
+            {viewingGuest.created_at && (
+              <div className="flex items-center justify-between text-xs text-stone-400 px-1 pt-1">
+                <span className="flex items-center space-x-1.5">
+                  <Calendar size={13} />
+                  <span>Didaftarkan pada:</span>
+                </span>
+                <span className="font-mono font-bold text-stone-600">
+                  {new Date(viewingGuest.created_at).toLocaleString('id-ID', {
+                    dateStyle: 'long',
+                    timeStyle: 'short'
+                  })}
+                </span>
+              </div>
+            )}
 
             {/* Bottom Actions inside View Modal */}
             <div className="flex items-center justify-between pt-4 border-t border-stone-200">
@@ -1423,53 +1776,278 @@ Link RSVP: ${rsvpUrl}`;
       )}
 
       {/* ============================================================== */}
+      {/* ============================================================== */}
       {/* 8. ADD / EDIT GUEST MODAL (WITH VIP & AUTO QR BARCODE LINK)    */}
       {/* ============================================================== */}
       <Modal
         isOpen={isFormModalOpen}
         onClose={() => setIsFormModalOpen(false)}
-        title={`${editingGuest ? 'Edit Data' : 'Tambah'} Tamu Undangan`}
+        title={`${editingGuest ? 'Edit' : 'Tambah'} ${formData.is_divisi ? 'Undangan Divisi / Kelompok' : 'Tamu Undangan'}`}
         maxWidth="max-w-xl"
       >
         <form onSubmit={handleSubmitForm} className="space-y-6">
+          {/* Segmented Switcher (Individu vs Divisi) - Only when adding or can switch */}
+          {!editingGuest && (
+            <div className="p-1 bg-stone-100 rounded-2xl flex items-center border border-stone-200">
+              <button
+                type="button"
+                onClick={() =>
+                  setFormData({
+                    ...formData,
+                    is_divisi: false,
+                    nama_tamu: '',
+                    nama_divisi: '',
+                    kuota_pax: 1
+                  })
+                }
+                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+                  !formData.is_divisi
+                    ? 'bg-white text-maroon shadow-sm border border-stone-200'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                <User size={15} />
+                <span>Individu / Keluarga</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setFormData({
+                    ...formData,
+                    is_divisi: true,
+                    nama_tamu: '',
+                    nama_divisi: '',
+                    kuota_pax: 20,
+                    kategori: 'Teman Kerja',
+                    souvenir_policy: 'per_pax'
+                  })
+                }
+                className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+                  formData.is_divisi
+                    ? 'bg-maroon text-gold shadow-sm border border-gold/40'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                <Building2 size={15} />
+                <span>Divisi / Kelompok</span>
+              </button>
+            </div>
+          )}
+
           <div className="space-y-4">
             
-            {/* Nama Tamu */}
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-maroon uppercase tracking-wider">
-                Nama Lengkap Tamu / Keluarga <span className="text-red-500">*</span>
-              </label>
-              <input
-                required
-                type="text"
-                placeholder="Contoh: Bpk. Bambang Sutrisno / Keluarga Bpk. Rahmat"
-                value={formData.nama_tamu}
-                onChange={(e) => setFormData({ ...formData, nama_tamu: e.target.value })}
-                className="w-full px-4 py-3 border border-stone-300 focus:border-maroon rounded-xl font-bold text-stone-800 outline-none transition-all shadow-sm"
-              />
-            </div>
+            {/* JIKA MODE DIVISI */}
+            {formData.is_divisi ? (
+              <>
+                {/* Banner Info Divisi */}
+                <div className="p-3.5 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent rounded-2xl border border-amber-300/80 flex items-start space-x-3 text-xs text-amber-950">
+                  <Building2 size={20} className="text-amber-700 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block text-maroon font-bold text-xs uppercase tracking-wide">
+                      1 Undangan &amp; 1 QR Code Untuk 1 Rombongan Divisi
+                    </strong>
+                    <p className="text-[11px] text-stone-600 mt-0.5 leading-relaxed">
+                      Satu QR Code dapat discan berulang kali oleh anggota kelompok secara terpisah/bertahap selama kuota pax masih tersedia.
+                    </p>
+                  </div>
+                </div>
 
-            {/* Nomor WhatsApp */}
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-maroon uppercase tracking-wider">
-                Nomor WhatsApp (Untuk Kirim Undangan Digital)
-              </label>
-              <div className="relative">
-                <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
-                <input
-                  type="text"
-                  placeholder="0812xxxx atau 62812xxxx"
-                  value={formData.no_whatsapp}
-                  onChange={(e) => setFormData({ ...formData, no_whatsapp: e.target.value })}
-                  className="w-full pl-10 pr-4 py-3 border border-stone-300 focus:border-maroon rounded-xl font-mono text-xs font-bold text-stone-800 outline-none transition-all shadow-sm"
-                />
-              </div>
-              <p className="text-[10px] text-stone-400 ml-1">
-                Tamu dapat langsung dikirimi link undangan digital &amp; QR Code melalui WhatsApp.
-              </p>
-            </div>
+                {/* Nama Divisi / Kelompok */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-maroon uppercase tracking-wider">
+                    Nama Divisi / Kelompok <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="Contoh: Divisi IT & Digital System / Tim Operasional Wilayah Barat"
+                    value={formData.nama_divisi || formData.nama_tamu}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        nama_divisi: e.target.value,
+                        nama_tamu: e.target.value
+                      })
+                    }
+                    className="w-full px-4 py-3 border border-stone-300 focus:border-maroon rounded-xl font-bold text-stone-800 outline-none transition-all shadow-sm"
+                  />
+                </div>
 
-            {/* Kategori Undangan (VIP vs Reguler) */}
+                {/* Nomor WhatsApp PIC */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-maroon uppercase tracking-wider">
+                    Nomor WhatsApp PIC / Koordinator Divisi
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+                    <input
+                      type="text"
+                      placeholder="0812xxxx atau 62812xxxx"
+                      value={formData.no_whatsapp}
+                      onChange={(e) => setFormData({ ...formData, no_whatsapp: e.target.value })}
+                      className="w-full pl-10 pr-4 py-3 border border-stone-300 focus:border-maroon rounded-xl font-mono text-xs font-bold text-stone-800 outline-none transition-all shadow-sm"
+                    />
+                  </div>
+                  <p className="text-[10px] text-stone-400 ml-1">
+                    Link undangan &amp; QR Code bersama akan dikirimkan ke nomor WhatsApp PIC ini untuk disebarkan ke anggota divisi.
+                  </p>
+                </div>
+
+                {/* Total Kuota Pax */}
+                <div className="p-4 bg-amber-50/70 rounded-2xl border border-gold-300/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
+                        Total Kuota Pax Anggota <span className="text-red-500">*</span>
+                      </label>
+                      <span className="text-[11px] text-stone-500">
+                        Batas maksimal seluruh anggota divisi yang dapat hadir
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-gold-300 shadow-sm">
+                      <input
+                        type="number"
+                        min={1}
+                        max={300}
+                        required
+                        value={formData.kuota_pax}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          setFormData({
+                            ...formData,
+                            kuota_pax: isNaN(val) ? 1 : Math.max(1, val)
+                          });
+                        }}
+                        className="w-20 text-center font-mono font-bold text-maroon text-base outline-none"
+                      />
+                      <span className="text-xs font-bold text-stone-600 uppercase">Pax</span>
+                    </div>
+                  </div>
+
+                  {/* Pilihan Cepat Kuota */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gold-200/60">
+                    <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider mr-1">
+                      Pilihan Cepat:
+                    </span>
+                    {[5, 10, 15, 20, 25, 30, 40, 50, 100].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, kuota_pax: val })}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border transition-all cursor-pointer ${
+                          formData.kuota_pax === val
+                            ? 'bg-maroon text-gold border-gold shadow-sm'
+                            : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
+                        }`}
+                      >
+                        {val} Pax
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Kebijakan Pengambilan Souvenir */}
+                <div className="space-y-2 p-4 bg-white rounded-2xl border border-stone-200">
+                  <div className="flex items-center space-x-2">
+                    <Gift size={16} className="text-maroon" />
+                    <label className="text-xs font-bold text-maroon uppercase tracking-wider">
+                      Kebijakan Hak Pengambilan Souvenir
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <label
+                      onClick={() => setFormData({ ...formData, souvenir_policy: 'per_pax' })}
+                      className={`p-3 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
+                        formData.souvenir_policy === 'per_pax'
+                          ? 'border-maroon bg-amber-50/50 ring-1 ring-maroon shadow-xs'
+                          : 'border-stone-200 bg-stone-50/50 hover:bg-stone-100'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          name="souvenir_policy"
+                          checked={formData.souvenir_policy === 'per_pax'}
+                          onChange={() => setFormData({ ...formData, souvenir_policy: 'per_pax' })}
+                          className="accent-maroon"
+                        />
+                        <span className="text-xs font-bold text-stone-800">
+                          1 Souvenir / Pax Hadir
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-stone-500 mt-1 pl-5">
+                        (Rekomendasi) Souvenir dihitung bertahap sesuai jumlah anggota divisi yang sudah melakukan check-in.
+                      </span>
+                    </label>
+
+                    <label
+                      onClick={() => setFormData({ ...formData, souvenir_policy: 'per_undangan' })}
+                      className={`p-3 rounded-xl border flex flex-col justify-between cursor-pointer transition-all ${
+                        formData.souvenir_policy === 'per_undangan'
+                          ? 'border-maroon bg-amber-50/50 ring-1 ring-maroon shadow-xs'
+                          : 'border-stone-200 bg-stone-50/50 hover:bg-stone-100'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          name="souvenir_policy"
+                          checked={formData.souvenir_policy === 'per_undangan'}
+                          onChange={() => setFormData({ ...formData, souvenir_policy: 'per_undangan' })}
+                          className="accent-maroon"
+                        />
+                        <span className="text-xs font-bold text-stone-800">
+                          1 Souvenir / Undangan Divisi
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-stone-500 mt-1 pl-5">
+                        (Simbolis) Hanya 1 paket souvenir untuk seluruh rombongan divisi yang diambil oleh perwakilan.
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* JIKA MODE INDIVIDU */
+              <>
+                {/* Nama Tamu */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-maroon uppercase tracking-wider">
+                    Nama Lengkap Tamu / Keluarga <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="Contoh: Bpk. Bambang Sutrisno / Keluarga Bpk. Rahmat"
+                    value={formData.nama_tamu}
+                    onChange={(e) => setFormData({ ...formData, nama_tamu: e.target.value })}
+                    className="w-full px-4 py-3 border border-stone-300 focus:border-maroon rounded-xl font-bold text-stone-800 outline-none transition-all shadow-sm"
+                  />
+                </div>
+
+                {/* Nomor WhatsApp */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-maroon uppercase tracking-wider">
+                    Nomor WhatsApp (Untuk Kirim Undangan Digital)
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+                    <input
+                      type="text"
+                      placeholder="0812xxxx atau 62812xxxx"
+                      value={formData.no_whatsapp}
+                      onChange={(e) => setFormData({ ...formData, no_whatsapp: e.target.value })}
+                      className="w-full pl-10 pr-4 py-3 border border-stone-300 focus:border-maroon rounded-xl font-mono text-xs font-bold text-stone-800 outline-none transition-all shadow-sm"
+                    />
+                  </div>
+                  <p className="text-[10px] text-stone-400 ml-1">
+                    Tamu dapat langsung dikirimi link undangan digital &amp; QR Code melalui WhatsApp.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {/* Kategori Undangan (VIP vs Reguler) - Berlaku baik Individu maupun Divisi */}
             <div className="space-y-1">
               <label className="text-xs font-bold text-maroon uppercase tracking-wider">
                 Kategori Undangan
@@ -1537,125 +2115,127 @@ Link RSVP: ${rsvpUrl}`;
               </div>
             </div>
 
-            {/* Pasangan / Keluarga Box */}
-            <div className="p-5 bg-amber-50/60 rounded-2xl border border-gold-200/80 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFormData({
-                        ...formData,
-                        membawa_pasangan: !formData.membawa_pasangan
-                      })
-                    }
-                    className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                      formData.membawa_pasangan ? 'bg-maroon' : 'bg-stone-300'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all shadow-md ${
-                        formData.membawa_pasangan ? 'left-6' : 'left-0.5'
-                      }`}
-                    />
-                  </button>
-                  <span className="text-xs font-bold text-maroon uppercase tracking-wider">
-                    Membawa Pasangan / Keluarga?
-                  </span>
-                </div>
-
-                {formData.membawa_pasangan && (
-                  <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-gold-300 shadow-sm">
-                    <span className="text-[10px] font-bold text-stone-500 uppercase">
-                      Tambahan:
-                    </span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={formData.jumlah_tambahan}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        if (raw === '') {
-                          setFormData({ ...formData, jumlah_tambahan: '' as any });
-                          return;
-                        }
-                        const val = parseInt(raw, 10);
-                        if (isNaN(val)) return;
+            {/* Pasangan / Keluarga Box (HANYA UNTUK INDIVIDU) */}
+            {!formData.is_divisi && (
+              <div className="p-5 bg-amber-50/60 rounded-2xl border border-gold-200/80 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <button
+                      type="button"
+                      onClick={() =>
                         setFormData({
                           ...formData,
-                          jumlah_tambahan: Math.min(30, Math.max(1, val))
-                        });
-                      }}
-                      onBlur={() => {
-                        if (!formData.jumlah_tambahan || Number(formData.jumlah_tambahan) < 1) {
-                          setFormData({ ...formData, jumlah_tambahan: 1 });
-                        } else if (Number(formData.jumlah_tambahan) > 30) {
-                          setFormData({ ...formData, jumlah_tambahan: 30 });
-                        }
-                      }}
-                      className="w-16 text-center font-mono font-bold text-maroon text-sm outline-none"
-                    />
-                    <span className="text-[10px] font-bold text-stone-500 uppercase">
-                      Orang (Maks. 30)
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Quick shortcut pills for large families or entire company division (Bisa untuk 1 Divisi s.d. 30 Pax) */}
-              {formData.membawa_pasangan && (
-                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gold-200/50">
-                  <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider mr-1">
-                    Pilihan Cepat:
-                  </span>
-                  {[1, 2, 4, 9, 14, 19, 24, 29].map((val) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, jumlah_tambahan: val })}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition-all cursor-pointer ${
-                        Number(formData.jumlah_tambahan) === val
-                          ? 'bg-maroon text-gold border-gold shadow-xs'
-                          : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+                          membawa_pasangan: !formData.membawa_pasangan
+                        })
+                      }
+                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                        formData.membawa_pasangan ? 'bg-maroon' : 'bg-stone-300'
                       }`}
                     >
-                      +{val} ({val + 1} Pax)
+                      <div
+                        className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all shadow-md ${
+                          formData.membawa_pasangan ? 'left-6' : 'left-0.5'
+                        }`}
+                      />
                     </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, jumlah_tambahan: 29 })}
-                    className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-all cursor-pointer"
-                  >
-                    🏢 1 Divisi (30 Pax)
-                  </button>
-                </div>
-              )}
-
-              {/* Total Pax Calculator Hint */}
-              <div className="p-3 bg-white/80 rounded-xl border border-dashed border-gold-300 flex items-center space-x-2 text-xs">
-                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                <p className="text-stone-700">
-                  Total estimasi katering untuk tamu ini:{' '}
-                  <strong className="text-maroon font-serif text-sm">
-                    {1 + (formData.membawa_pasangan ? Number(formData.jumlah_tambahan || 1) : 0)} Pax
-                  </strong>
-                  {formData.membawa_pasangan && Number(formData.jumlah_tambahan) >= 9 && (
-                    <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
-                      🏢 Rombongan / 1 Divisi
+                    <span className="text-xs font-bold text-maroon uppercase tracking-wider">
+                      Membawa Pasangan / Keluarga?
                     </span>
-                  )}
-                </p>
-              </div>
+                  </div>
 
-              {/* Auto Sync Notice */}
-              <div className="p-3 bg-gold-50/70 rounded-xl border border-gold-300/60 text-[11px] text-amber-900 flex items-start space-x-2">
-                <Sparkles size={14} className="text-gold shrink-0 mt-0.5" />
-                <p>
-                  Sistem akan <strong>otomatis membuatkan barcode unik &amp; link undangan</strong> yang langsung terdaftar pada menu <strong>Buku Tamu &amp; Scan</strong> serta <strong>Scan Kehadiran</strong>.
-                </p>
+                  {formData.membawa_pasangan && (
+                    <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-gold-300 shadow-sm">
+                      <span className="text-[10px] font-bold text-stone-500 uppercase">
+                        Tambahan:
+                      </span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={formData.jumlah_tambahan}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          if (raw === '') {
+                            setFormData({ ...formData, jumlah_tambahan: '' as any });
+                            return;
+                          }
+                          const val = parseInt(raw, 10);
+                          if (isNaN(val)) return;
+                          setFormData({
+                            ...formData,
+                            jumlah_tambahan: Math.min(30, Math.max(1, val))
+                          });
+                        }}
+                        onBlur={() => {
+                          if (!formData.jumlah_tambahan || Number(formData.jumlah_tambahan) < 1) {
+                            setFormData({ ...formData, jumlah_tambahan: 1 });
+                          } else if (Number(formData.jumlah_tambahan) > 30) {
+                            setFormData({ ...formData, jumlah_tambahan: 30 });
+                          }
+                        }}
+                        className="w-16 text-center font-mono font-bold text-maroon text-sm outline-none"
+                      />
+                      <span className="text-[10px] font-bold text-stone-500 uppercase">
+                        Orang (Maks. 30)
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Quick shortcut pills for large families or entire company division (Bisa untuk 1 Divisi s.d. 30 Pax) */}
+                {formData.membawa_pasangan && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gold-200/50">
+                    <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider mr-1">
+                      Pilihan Cepat:
+                    </span>
+                    {[1, 2, 4, 9, 14, 19, 24, 29].map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, jumlah_tambahan: val })}
+                        className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition-all cursor-pointer ${
+                          Number(formData.jumlah_tambahan) === val
+                            ? 'bg-maroon text-gold border-gold shadow-xs'
+                            : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+                        }`}
+                      >
+                        +{val} ({val + 1} Pax)
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, jumlah_tambahan: 29 })}
+                      className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-all cursor-pointer"
+                    >
+                      🏢 1 Divisi (30 Pax)
+                    </button>
+                  </div>
+                )}
+
+                {/* Total Pax Calculator Hint */}
+                <div className="p-3 bg-white/80 rounded-xl border border-dashed border-gold-300 flex items-center space-x-2 text-xs">
+                  <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                  <p className="text-stone-700">
+                    Total estimasi katering untuk tamu ini:{' '}
+                    <strong className="text-maroon font-serif text-sm">
+                      {1 + (formData.membawa_pasangan ? Number(formData.jumlah_tambahan || 1) : 0)} Pax
+                    </strong>
+                    {formData.membawa_pasangan && Number(formData.jumlah_tambahan) >= 9 && (
+                      <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                        🏢 Rombongan / 1 Divisi
+                      </span>
+                    )}
+                  </p>
+                </div>
               </div>
+            )}
+
+            {/* Auto Sync Notice */}
+            <div className="p-3 bg-gold-50/70 rounded-xl border border-gold-300/60 text-[11px] text-amber-900 flex items-start space-x-2">
+              <Sparkles size={14} className="text-gold shrink-0 mt-0.5" />
+              <p>
+                Sistem akan <strong>otomatis membuatkan barcode unik &amp; link undangan</strong> yang langsung terdaftar pada menu <strong>Buku Tamu &amp; Scan</strong> serta <strong>Scan Kehadiran</strong>.
+              </p>
             </div>
 
           </div>

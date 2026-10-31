@@ -280,6 +280,21 @@ class BukuTamuCloudBridge {
   async execute(): Promise<{ data: any; error: any }> {
     const SYSTEM_GUEST_RECEIVER = 'guest_pass_data@wedding.system';
 
+    const isSchemaOrTableError = (err: any) => {
+      if (!err) return false;
+      const code = err.code;
+      const msg = (err.message || '').toLowerCase();
+      return (
+        code === 'PGRST205' ||
+        code === 'PGRST204' ||
+        code === '42703' ||
+        msg.includes('public.buku_tamu') ||
+        msg.includes('schema cache') ||
+        msg.includes('could not find') ||
+        msg.includes('column')
+      );
+    };
+
     // 1. Coba tabel native 'buku_tamu' terlebih dahulu jika sudah dibuat di Supabase
     try {
       if (this.action === 'select') {
@@ -290,13 +305,13 @@ class BukuTamuCloudBridge {
         });
         const res = await q;
         if (!res.error) return res;
-        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+        if (!isSchemaOrTableError(res.error)) {
           return res;
         }
       } else if (this.action === 'insert') {
         const res = await this.client.from('buku_tamu').insert(this.payload).select();
         if (!res.error) return res;
-        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+        if (!isSchemaOrTableError(res.error)) {
           return res;
         }
       } else if (this.action === 'update') {
@@ -306,7 +321,7 @@ class BukuTamuCloudBridge {
         });
         const res = await q.select();
         if (!res.error) return res;
-        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+        if (!isSchemaOrTableError(res.error)) {
           return res;
         }
       } else if (this.action === 'delete') {
@@ -316,7 +331,7 @@ class BukuTamuCloudBridge {
         });
         const res = await q;
         if (!res.error) return res;
-        if (res.error?.code !== 'PGRST205' && !res.error?.message?.includes('public.buku_tamu')) {
+        if (!isSchemaOrTableError(res.error)) {
           return res;
         }
       }
@@ -347,8 +362,16 @@ class BukuTamuCloudBridge {
           } catch {
             parsed = {};
           }
-          const jatah = Number(parsed.jatah_tamu || parsed.jumlah_tamu) || 1;
+          const jatah = Number(parsed.jatah_tamu || parsed.kuota_pax || parsed.jumlah_tamu) || 1;
           const konfirmasi = Number(parsed.jumlah_hadir_konfirmasi || parsed.jumlah_tamu) || jatah;
+          const isDivisi = Boolean(parsed.is_divisi || (parsed.kategori && String(parsed.kategori).toLowerCase().includes('divisi')));
+          const kuotaPax = Number(parsed.kuota_pax || jatah || 1);
+          const paxHadir = Number(parsed.pax_hadir || (parsed.is_attended ? (parsed.jumlah_hadir_konfirmasi || 1) : 0));
+          const sisaKuota = Math.max(0, kuotaPax - paxHadir);
+          const checkinHistory = Array.isArray(parsed.checkin_history) ? parsed.checkin_history : [];
+          const souvenirHistory = Array.isArray(parsed.souvenir_history) ? parsed.souvenir_history : [];
+          const souvenirTaken = Number(parsed.souvenir_taken || (parsed.is_souvenir_given ? 1 : 0));
+
           return {
             id: row.id,
             ticket_code: row.sender_email || parsed.ticket_code,
@@ -361,11 +384,21 @@ class BukuTamuCloudBridge {
             jumlah_hadir_konfirmasi: konfirmasi,
             kategori_tamu: (parsed.kategori_tamu === 'VIP' ? 'VIP' : 'Reguler') as 'VIP' | 'Reguler',
             ucapan: parsed.ucapan || '',
-            is_attended: Boolean(row.is_read || parsed.is_attended),
+            is_attended: Boolean(row.is_read || parsed.is_attended || paxHadir > 0),
             attended_at: parsed.attended_at || null,
-            is_souvenir_given: Boolean(parsed.is_souvenir_given),
+            is_souvenir_given: Boolean(parsed.is_souvenir_given || (isDivisi ? souvenirTaken >= kuotaPax : souvenirTaken > 0)),
             souvenir_given_at: parsed.souvenir_given_at || null,
             ...parsed,
+            is_divisi: isDivisi,
+            nama_divisi: parsed.nama_divisi || parsed.nama_tamu,
+            kuota_pax: kuotaPax,
+            pax_hadir: paxHadir,
+            sisa_kuota: sisaKuota,
+            checkin_history: checkinHistory,
+            souvenir_policy: parsed.souvenir_policy || 'per_pax',
+            souvenir_quota: Number(parsed.souvenir_quota || kuotaPax),
+            souvenir_taken: souvenirTaken,
+            souvenir_history: souvenirHistory,
             created_at: row.created_at
           };
         });

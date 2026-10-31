@@ -416,22 +416,112 @@ const GuestPass: React.FC = () => {
                   <label className="text-xs font-bold uppercase tracking-wider text-stone-700 block">
                     Berapa orang yang akan hadir? <span className="text-rose-600">*</span>
                   </label>
-                  <div className="flex flex-wrap gap-2">
-                    {Array.from({ length: Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1) }, (_, i) => i + 1).map((num) => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => setConfirmedPax(num)}
-                        className={`flex-1 min-w-[70px] py-3 rounded-xl font-bold text-xs border transition-all ${
-                          confirmedPax === num
-                            ? 'bg-maroon text-gold border-gold shadow-md ring-1 ring-gold'
-                            : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        {num} Orang
-                      </button>
-                    ))}
-                  </div>
+
+                  {Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1) <= 8 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from({ length: Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1) }, (_, i) => i + 1).map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setConfirmedPax(num)}
+                          className={`flex-1 min-w-[70px] py-3 rounded-xl font-bold text-xs border transition-all cursor-pointer ${
+                            confirmedPax === num
+                              ? 'bg-maroon text-gold border-gold shadow-md ring-1 ring-gold'
+                              : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50'
+                          }`}
+                        >
+                          {num} Orang
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    /* Layout Khusus Rombongan / 1 Divisi (Pax > 8 s.d. 30) */
+                    <div className="space-y-3 bg-stone-50/80 p-4 rounded-2xl border border-gold-200">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <span className="text-xs text-stone-700 font-bold block">
+                            Atur Jumlah Kehadiran Rombongan
+                          </span>
+                          <span className="text-[11px] text-stone-500">
+                            Tersedia jatah hingga <strong>{Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1)} Pax</strong>
+                          </span>
+                        </div>
+
+                        {/* Interactive Counter Stepper */}
+                        <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-xl border border-gold-300 shadow-sm self-start sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmedPax((prev) => Math.max(1, prev - 1))}
+                            className="w-8 h-8 rounded-lg bg-stone-100 hover:bg-stone-200 font-bold text-maroon flex items-center justify-center transition-colors cursor-pointer text-base"
+                            title="Kurang 1 orang"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min={1}
+                            max={Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1)}
+                            value={confirmedPax}
+                            onChange={(e) => {
+                              const maxPax = Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1);
+                              const val = parseInt(e.target.value, 10);
+                              if (!isNaN(val)) {
+                                setConfirmedPax(Math.min(maxPax, Math.max(1, val)));
+                              }
+                            }}
+                            className="w-14 text-center font-serif text-lg font-bold text-maroon outline-none"
+                          />
+                          <span className="text-xs font-bold text-stone-500 uppercase pr-1">Pax</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const maxPax = Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1);
+                              setConfirmedPax((prev) => Math.min(maxPax, prev + 1));
+                            }}
+                            className="w-8 h-8 rounded-lg bg-stone-100 hover:bg-stone-200 font-bold text-maroon flex items-center justify-center transition-colors cursor-pointer text-base"
+                            title="Tambah 1 orang"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Quick Option Pills for Large Divisions */}
+                      <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-stone-200/80">
+                        <span className="text-[10px] text-stone-400 font-bold uppercase tracking-wider mr-1">
+                          Pilihan Cepat:
+                        </span>
+                        {[1, 2, 5, 10, 15, 20, 25]
+                          .filter((p) => p < Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1))
+                          .map((val) => (
+                            <button
+                              key={val}
+                              type="button"
+                              onClick={() => setConfirmedPax(val)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border transition-all cursor-pointer ${
+                                confirmedPax === val
+                                  ? 'bg-maroon text-gold border-gold shadow-xs'
+                                  : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
+                              }`}
+                            >
+                              {val} Orang
+                            </button>
+                          ))}
+                        <button
+                          type="button"
+                          onClick={() => setConfirmedPax(Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1))}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                            confirmedPax === Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1)
+                              ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs'
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          Semua Hadir ({Number(ticket.jatah_tamu || ticket.jumlah_tamu || 1)} Pax)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <p className="text-[11px] text-stone-400 italic">
                     * Mohon sesuaikan jumlah orang yang hadir demi kenyamanan pengaturan tempat duduk dan katering.
                   </p>

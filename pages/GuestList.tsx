@@ -337,7 +337,10 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       return;
     }
 
-    const paxQuota = 1 + (formData.membawa_pasangan ? Math.max(1, Number(formData.jumlah_tambahan)) : 0);
+    const additionalCount = formData.membawa_pasangan
+      ? Math.min(30, Math.max(1, Number(formData.jumlah_tambahan) || 1))
+      : 0;
+    const paxQuota = 1 + additionalCount;
 
     const tamuPayload = {
       nama_tamu: formData.nama_tamu.trim(),
@@ -345,7 +348,7 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
       pihak: formData.pihak,
       kategori: formData.kategori,
       membawa_pasangan: formData.membawa_pasangan,
-      jumlah_tambahan: formData.membawa_pasangan ? Math.max(1, Number(formData.jumlah_tambahan)) : 0
+      jumlah_tambahan: additionalCount
     };
 
     try {
@@ -1569,22 +1572,66 @@ Link RSVP: ${rsvpUrl}`;
                     <input
                       type="number"
                       min={1}
-                      max={10}
+                      max={30}
                       value={formData.jumlah_tambahan}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === '') {
+                          setFormData({ ...formData, jumlah_tambahan: '' as any });
+                          return;
+                        }
+                        const val = parseInt(raw, 10);
+                        if (isNaN(val)) return;
                         setFormData({
                           ...formData,
-                          jumlah_tambahan: Math.max(1, Number(e.target.value))
-                        })
-                      }
-                      className="w-12 text-center font-mono font-bold text-maroon text-sm outline-none"
+                          jumlah_tambahan: Math.min(30, Math.max(1, val))
+                        });
+                      }}
+                      onBlur={() => {
+                        if (!formData.jumlah_tambahan || Number(formData.jumlah_tambahan) < 1) {
+                          setFormData({ ...formData, jumlah_tambahan: 1 });
+                        } else if (Number(formData.jumlah_tambahan) > 30) {
+                          setFormData({ ...formData, jumlah_tambahan: 30 });
+                        }
+                      }}
+                      className="w-16 text-center font-mono font-bold text-maroon text-sm outline-none"
                     />
                     <span className="text-[10px] font-bold text-stone-500 uppercase">
-                      Orang
+                      Orang (Maks. 30)
                     </span>
                   </div>
                 )}
               </div>
+
+              {/* Quick shortcut pills for large families or entire company division (Bisa untuk 1 Divisi s.d. 30 Pax) */}
+              {formData.membawa_pasangan && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-gold-200/50">
+                  <span className="text-[10px] text-stone-500 font-bold uppercase tracking-wider mr-1">
+                    Pilihan Cepat:
+                  </span>
+                  {[1, 2, 4, 9, 14, 19, 24, 29].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, jumlah_tambahan: val })}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition-all cursor-pointer ${
+                        Number(formData.jumlah_tambahan) === val
+                          ? 'bg-maroon text-gold border-gold shadow-xs'
+                          : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      +{val} ({val + 1} Pax)
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, jumlah_tambahan: 29 })}
+                    className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-all cursor-pointer"
+                  >
+                    🏢 1 Divisi (30 Pax)
+                  </button>
+                </div>
+              )}
 
               {/* Total Pax Calculator Hint */}
               <div className="p-3 bg-white/80 rounded-xl border border-dashed border-gold-300 flex items-center space-x-2 text-xs">
@@ -1594,6 +1641,11 @@ Link RSVP: ${rsvpUrl}`;
                   <strong className="text-maroon font-serif text-sm">
                     {1 + (formData.membawa_pasangan ? Number(formData.jumlah_tambahan || 1) : 0)} Pax
                   </strong>
+                  {formData.membawa_pasangan && Number(formData.jumlah_tambahan) >= 9 && (
+                    <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                      🏢 Rombongan / 1 Divisi
+                    </span>
+                  )}
                 </p>
               </div>
 

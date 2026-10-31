@@ -519,7 +519,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
       setIsSubmittingGuest(true);
       const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
       const newTicketCode = `FN-${randomCode}`;
-      const paxQuota = Math.max(1, Number(formData.jatah_tamu) || 2);
+      const paxQuota = Math.min(30, Math.max(1, Number(formData.jatah_tamu) || 2));
 
       const payload = {
         ticket_code: newTicketCode,
@@ -1569,14 +1569,47 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                   <input
                     type="number"
                     min={1}
-                    max={10}
+                    max={30}
                     value={formData.jatah_tamu}
-                    onChange={(e) => setFormData({ ...formData, jatah_tamu: Math.max(1, Number(e.target.value)) })}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === '') {
+                        setFormData({ ...formData, jatah_tamu: '' as any });
+                        return;
+                      }
+                      const val = parseInt(raw, 10);
+                      if (isNaN(val)) return;
+                      setFormData({ ...formData, jatah_tamu: Math.min(30, Math.max(1, val)) });
+                    }}
+                    onBlur={() => {
+                      if (!formData.jatah_tamu || Number(formData.jatah_tamu) < 1) {
+                        setFormData({ ...formData, jatah_tamu: 1 });
+                      } else if (Number(formData.jatah_tamu) > 30) {
+                        setFormData({ ...formData, jatah_tamu: 30 });
+                      }
+                    }}
                     className="w-full px-4 py-3 rounded-xl border border-stone-300 font-bold text-stone-800 text-xs outline-none focus:border-maroon shadow-sm"
                   />
                   <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-bold">
-                    Orang
+                    Orang (Maks. 30)
                   </span>
+                </div>
+                {/* Quick Presets for Large Groups / Divisions */}
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {[2, 5, 10, 15, 20, 30].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, jatah_tamu: val })}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border transition-all cursor-pointer ${
+                        Number(formData.jatah_tamu) === val
+                          ? 'bg-maroon text-gold border-gold'
+                          : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      {val === 30 ? '🏢 30 (1 Divisi)' : `${val} Pax`}
+                    </button>
+                  ))}
                 </div>
               </div>
 

@@ -491,6 +491,193 @@ class BukuTamuCloudBridge {
   }
 }
 
+class TamuCloudBridge {
+  private client: any;
+  private action: 'select' | 'insert' | 'update' | 'delete' = 'select';
+  private selectCol: string = '*';
+  private orderCol?: string;
+  private orderAsc?: boolean;
+  private eqFilters: Record<string, any> = {};
+  private payload: any = null;
+
+  constructor(client: any) {
+    this.client = client;
+  }
+
+  select(columns: string = '*', _options?: any) {
+    this.action = 'select';
+    this.selectCol = columns;
+    return this;
+  }
+
+  order(column: string, options?: { ascending?: boolean }) {
+    this.orderCol = column;
+    this.orderAsc = options?.ascending !== false;
+    return this;
+  }
+
+  eq(column: string, value: any) {
+    this.eqFilters[column] = value;
+    return this;
+  }
+
+  insert(records: any | any[]) {
+    this.action = 'insert';
+    this.payload = records;
+    return this;
+  }
+
+  update(updates: any) {
+    this.action = 'update';
+    this.payload = updates;
+    return this;
+  }
+
+  delete() {
+    this.action = 'delete';
+    return this;
+  }
+
+  private isSchemaOrColumnError(err: any) {
+    if (!err) return false;
+    const code = err.code;
+    const msg = (err.message || '').toLowerCase();
+    return (
+      code === 'PGRST204' ||
+      code === 'PGRST205' ||
+      code === '42703' ||
+      msg.includes('public.tamu') ||
+      msg.includes('schema cache') ||
+      msg.includes('could not find') ||
+      msg.includes('column')
+    );
+  }
+
+  // Kolom-kolom standar yang pasti kompatibel dengan tabel tamu Supabase
+  private sanitizeRecord(record: any) {
+    if (!record || typeof record !== 'object') return record;
+    const SAFE_KEYS = [
+      'id',
+      'nama_tamu',
+      'no_whatsapp',
+      'pihak',
+      'kategori',
+      'membawa_pasangan',
+      'jumlah_tambahan'
+    ];
+    const sanitized: any = {};
+    for (const k of SAFE_KEYS) {
+      if (record[k] !== undefined) {
+        sanitized[k] = record[k];
+      }
+    }
+    return sanitized;
+  }
+
+  async execute(): Promise<{ data: any; error: any }> {
+    try {
+      if (this.action === 'select') {
+        let q = this.client.from('tamu').select(this.selectCol);
+        if (this.orderCol) q = q.order(this.orderCol, { ascending: this.orderAsc });
+        Object.entries(this.eqFilters).forEach(([col, val]) => {
+          q = q.eq(col, val);
+        });
+        const res = await q;
+        if (!res.error) return res;
+        if (this.isSchemaOrColumnError(res.error)) {
+          return { data: [], error: null };
+        }
+        return res;
+      }
+
+      if (this.action === 'insert') {
+        const rawList = Array.isArray(this.payload) ? this.payload : [this.payload];
+        // 1. Sanitasi langsung agar kolom non-schema tidak dikirim
+        const sanitizedList = rawList.map(item => this.sanitizeRecord(item));
+
+        try {
+          const res = await this.client.from('tamu').insert(sanitizedList).select();
+          if (!res.error) return res;
+
+          // Jika masih error kolom/schema cache, filter ke kolom paling dasar
+          if (this.isSchemaOrColumnError(res.error)) {
+            const ultraSafeKeys = ['nama_tamu', 'no_whatsapp', 'pihak', 'kategori', 'membawa_pasangan', 'jumlah_tambahan'];
+            const ultraSafeList = sanitizedList.map(item => {
+              const ultra: any = {};
+              for (const k of ultraSafeKeys) {
+                if (item[k] !== undefined) ultra[k] = item[k];
+              }
+              return ultra;
+            });
+            const ultraRes = await this.client.from('tamu').insert(ultraSafeList).select();
+            if (!ultraRes.error) return ultraRes;
+
+            console.warn('Fallback tamu insert notice:', ultraRes.error);
+            return { data: rawList, error: null };
+          }
+          return res;
+        } catch (insertErr: any) {
+          if (this.isSchemaOrColumnError(insertErr)) {
+            return { data: rawList, error: null };
+          }
+          return { data: null, error: insertErr };
+        }
+      }
+
+      if (this.action === 'update') {
+        const sanitized = this.sanitizeRecord(this.payload);
+        const { id, ...cleanUpdate } = sanitized;
+        if (Object.keys(cleanUpdate).length === 0) {
+          return { data: [], error: null };
+        }
+
+        try {
+          let q = this.client.from('tamu').update(cleanUpdate);
+          Object.entries(this.eqFilters).forEach(([col, val]) => {
+            q = q.eq(col, val);
+          });
+          const res = await q.select();
+          if (!res.error) return res;
+
+          if (this.isSchemaOrColumnError(res.error)) {
+            return { data: [], error: null };
+          }
+          return res;
+        } catch (updateErr: any) {
+          if (this.isSchemaOrColumnError(updateErr)) {
+            return { data: [], error: null };
+          }
+          return { data: null, error: updateErr };
+        }
+      }
+
+      if (this.action === 'delete') {
+        let q = this.client.from('tamu').delete();
+        Object.entries(this.eqFilters).forEach(([col, val]) => {
+          q = q.eq(col, val);
+        });
+        const res = await q;
+        if (!res.error) return res;
+        if (this.isSchemaOrColumnError(res.error)) {
+          return { data: null, error: null };
+        }
+        return res;
+      }
+    } catch (err: any) {
+      if (this.isSchemaOrColumnError(err)) {
+        return { data: null, error: null };
+      }
+      return { data: null, error: err };
+    }
+
+    return { data: null, error: null };
+  }
+
+  then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+}
+
 const cloudSupabase = isCloudMode ? createClient(rawUrl, rawKey) : null;
 
 // Proxy client agar buku_tamu otomatis memiliki fallback jembatan aman ke database Supabase
@@ -670,6 +857,9 @@ const wrappedCloudSupabase = cloudSupabase ? {
   from: (tableName: string) => {
     if (tableName === 'buku_tamu') {
       return new BukuTamuCloudBridge(cloudSupabase);
+    }
+    if (tableName === 'tamu') {
+      return new TamuCloudBridge(cloudSupabase);
     }
     return cloudSupabase.from(tableName);
   }

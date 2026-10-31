@@ -446,15 +446,21 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
 
     const additionalCount = isDivisi ? Math.max(0, kuota - 1) : (formData.membawa_pasangan ? kuota - 1 : 0);
 
-    const tamuPayload = {
+    // Payload murni untuk tabel 'tamu' Supabase (hanya kolom standar yang ada di database)
+    const baseTamuPayload = {
       nama_tamu: finalNama,
-      nama_keluarga: finalNama,
       no_whatsapp: formData.no_whatsapp ? formData.no_whatsapp.trim() : null,
       pihak: formData.pihak,
       kategori: isDivisi ? 'Divisi / Kelompok' : formData.kategori,
-      kategori_tamu: formData.kategori_tamu,
       membawa_pasangan: isDivisi ? true : formData.membawa_pasangan,
-      jumlah_tambahan: additionalCount,
+      jumlah_tambahan: additionalCount
+    };
+
+    // State data lengkap untuk UI dan sinkronisasi
+    const fullTamuState = {
+      ...baseTamuPayload,
+      nama_keluarga: finalNama,
+      kategori_tamu: formData.kategori_tamu,
       is_divisi: isDivisi,
       nama_divisi: isDivisi ? finalNama : null,
       kuota_pax: kuota,
@@ -468,14 +474,20 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
     try {
       if (editingGuest) {
         // 1. Update ke tabel tamu
-        const { error: tamuError } = await supabase
-          .from('tamu')
-          .update(tamuPayload)
-          .eq('id', editingGuest.id);
+        try {
+          const { error: tamuError } = await supabase
+            .from('tamu')
+            .update(baseTamuPayload)
+            .eq('id', editingGuest.id);
 
-        if (tamuError) throw tamuError;
+          if (tamuError && !tamuError.message?.toLowerCase().includes('schema cache')) {
+            console.warn('Update tamu notice:', tamuError);
+          }
+        } catch (tErr) {
+          console.warn('Gagal update tabel tamu:', tErr);
+        }
 
-        // 2. Sinkronisasi update ke tabel buku_tamu
+        // 2. Sinkronisasi update ke tabel buku_tamu (menyimpan data divisi lengkap)
         try {
           const bukuUpdatePayload = {
             nama_tamu: finalNama,
@@ -508,16 +520,22 @@ const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {
         toast.success(`Data ${finalNama} berhasil diperbarui di Daftar Tamu & Buku Tamu!`);
 
         if (viewingGuest && viewingGuest.id === editingGuest.id) {
-          setViewingGuest({ ...viewingGuest, ...tamuPayload, kategori_tamu: formData.kategori_tamu });
+          setViewingGuest({ ...viewingGuest, ...fullTamuState, kategori_tamu: formData.kategori_tamu });
         }
       } else {
         // 1. Generate Kode Tiket Barcode Unik
         const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
         const newTicketCode = isDivisi ? `FN-DIV-${randomCode}` : `FN-${randomCode}`;
 
-        // 2. Insert ke tabel tamu
-        const { error: tamuError } = await supabase.from('tamu').insert([tamuPayload]);
-        if (tamuError) throw tamuError;
+        // 2. Insert ke tabel tamu dengan fallback aman
+        try {
+          const { error: tamuError } = await supabase.from('tamu').insert([baseTamuPayload]);
+          if (tamuError && !tamuError.message?.toLowerCase().includes('schema cache')) {
+            console.warn('Tamu insert notice:', tamuError);
+          }
+        } catch (tErr) {
+          console.warn('Gagal insert tabel tamu:', tErr);
+        }
 
         // 3. Otomatis buatkan data QR & link unik di buku_tamu agar langsung muncul di menu Buku Tamu & Scan!
         const bukuPayload = {

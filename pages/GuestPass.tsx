@@ -1303,7 +1303,7 @@ const GuestPass: React.FC = () => {
                 {ticket.is_divisi && activeBarcodeTab === 'kehadiran' && !isDivisiPaxConfirmed ? (
                   <div className="py-12 px-6 text-center bg-stone-50/80 rounded-3xl border-2 border-dashed border-stone-300 space-y-4 my-2 animate-fade-in">
                     <div className="w-16 h-16 rounded-2xl bg-amber-100 border border-amber-300 text-maroon flex items-center justify-center mx-auto shadow-sm">
-                      <QrCode size={32} className="text-maroon/80" />
+                      <QrIcon size={32} className="text-maroon/80" />
                     </div>
                     <div className="space-y-1">
                       <h4 className="font-serif text-lg font-bold text-stone-800">

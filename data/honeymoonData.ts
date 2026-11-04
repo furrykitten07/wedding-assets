@@ -577,3 +577,4 @@ export const INITIAL_PACKING_LIST: PackingItem[] = [
   { id: 'pack-21', name: 'Paracetamol, Obat Maag / Lambung, & Anti Alergi', category: 'kesehatan', for_person: 'Bersama', is_packed: true },
   { id: 'pack-22', name: 'Parfum Signature Romantis untuk makan malam', category: 'kesehatan', for_person: 'Bersama', is_packed: false }
 ];
+

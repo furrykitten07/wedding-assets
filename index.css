@@ -1,2 +1,68 @@
-/* Wedding System custom styles */
+/* Wedding System custom styles & Romantic Animations */
 
+@keyframes floatUpRomantic {
+  0% {
+    transform: translateY(105vh) scale(0.6) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  85% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-15vh) scale(1.15) rotate(45deg);
+    opacity: 0;
+  }
+}
+
+@keyframes heartBeatSlow {
+  0%, 100% {
+    transform: scale(1);
+  }
+  14% {
+    transform: scale(1.14);
+  }
+  28% {
+    transform: scale(1.04);
+  }
+  42% {
+    transform: scale(1.22);
+  }
+  70% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulseAura {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.8;
+  }
+}
+
+@keyframes ringGlowPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.4), inset 0 0 10px rgba(212, 175, 55, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(212, 175, 55, 0.9), inset 0 0 20px rgba(212, 175, 55, 0.6);
+  }
+}
+
+.animate-heartbeat {
+  animation: heartBeatSlow 1.6s ease-in-out infinite;
+}
+
+.animate-pulse-aura {
+  animation: pulseAura 2.2s ease-in-out infinite;
+}
+
+.animate-ring-glow {
+  animation: ringGlowPulse 2.4s ease-in-out infinite;
+}

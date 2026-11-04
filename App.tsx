@@ -87,14 +87,41 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-stone-50 space-y-6 font-serif">
-        <div className="relative">
-            <div className="w-24 h-24 border-4 border-gold-200 border-t-maroon rounded-full animate-spin shadow-xl"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-                <HeartIcon size={24} className="text-maroon animate-pulse fill-maroon" />
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#1b0205] via-[#36040a] to-[#120103] text-white p-6 text-center font-serif relative overflow-hidden select-none">
+        {/* Soft background glow */}
+        <div className="absolute w-80 h-80 bg-rose-600/20 rounded-full blur-[100px] pointer-events-none animate-pulse-aura" />
+        
+        {/* Animated Centerpiece */}
+        <div className="relative mb-6 z-10">
+          <div className="w-28 h-28 border-2 border-gold-300/40 rounded-full animate-ring-glow flex items-center justify-center relative">
+            <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-gold-300 animate-spin" style={{ animationDuration: '3.5s' }} />
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#7a0c17] to-[#4e070e] border border-gold flex flex-col items-center justify-center shadow-2xl">
+              <span className="text-gold font-serif text-2xl font-black tracking-widest drop-shadow">FN</span>
+              <span className="text-[7px] uppercase tracking-[0.25em] text-amber-200 font-bold">Forever</span>
             </div>
+            {/* Beating Heart Badge */}
+            <div className="absolute -top-2 w-7 h-7 rounded-full bg-rose-600 border border-gold flex items-center justify-center shadow-md animate-heartbeat">
+              <HeartIcon size={12} className="text-white fill-white" />
+            </div>
+          </div>
         </div>
-        <p className="text-maroon font-bold text-xl tracking-[0.2em] animate-pulse uppercase">Menata Kebahagiaan...</p>
+
+        {/* Text and Arabic Blessing */}
+        <div className="space-y-2 z-10 max-w-sm">
+          <p className="font-serif text-xs sm:text-sm text-amber-300/85 tracking-wider drop-shadow-sm select-none" dir="rtl">
+            بَارَكَ اللَّهُ لَكَ وَبَارَكَ عَلَيْكَ وَجَمَعَ بَيْنَكُمَا فِي خَيْرٍ
+          </p>
+          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-wide">
+            Fikri &amp; Nadya
+          </h2>
+          <p className="text-xs text-amber-200/90 font-serif italic tracking-wider animate-pulse">
+            Menata Setiap Detil Bahagia Menuju Hari Istimewa...
+          </p>
+        </div>
+
+        <p className="text-[9px] text-stone-400 font-sans mt-8 uppercase tracking-[0.3em] z-10">
+          Private Wedding Portal
+        </p>
       </div>
     );
   }

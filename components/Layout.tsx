@@ -16,7 +16,8 @@ import {
   BookOpenCheck,
   Lightbulb,
   QrCode,
-  Camera
+  Camera,
+  Palmtree
 } from 'lucide-react';
 import { supabase } from '../supabase';
 
@@ -79,6 +80,7 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
     { name: 'Scan Kehadiran', icon: Camera, path: '/scanner' },
     { name: 'Lamaran', icon: Heart, path: '/lamaran' },
     { name: 'Pernikahan', icon: Sparkles, path: '/pernikahan' },
+    { name: 'Agenda Honeymoon', icon: Palmtree, path: '/honeymoon' },
     { name: 'Daftar Tamu', icon: Users, path: '/tamu' },
     { name: 'Buku Tamu & Scan', icon: QrCode, path: '/administrasi-tamu' },
     { name: 'Pendapatan', icon: Wallet, path: '/pendapatan' },

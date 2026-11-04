@@ -166,3 +166,76 @@ export interface BukuTamu {
   souvenir_history?: SouvenirTransaction[];
   created_at: string;
 }
+
+
+// ==========================================
+// HONEYMOON PLANNER & ITINERARY TYPES
+// ==========================================
+
+export interface HoneymoonDestination {
+  id: string;
+  name: string;
+  tagline: string;
+  country: string;
+  duration_days: number;
+  best_season: string;
+  hero_image: string;
+  description: string;
+  highlights: string[];
+}
+
+export interface HoneymoonHotel {
+  id: string;
+  name: string;
+  destination: string;
+  location: string;
+  gmaps_link: string;
+  price_per_night: number;
+  nights_count: number;
+  total_price: number;
+  room_type: string;
+  amenities: string[];
+  image_url: string;
+  rating: number;
+  status: 'recommended' | 'wishlist' | 'booked';
+  romantic_notes?: string;
+}
+
+export type HoneymoonSpotCategory = 'photo_spot' | 'nature' | 'cafe_culinary' | 'unique_place';
+
+export interface HoneymoonSpot {
+  id: string;
+  name: string;
+  category: HoneymoonSpotCategory;
+  destination: string;
+  location: string;
+  gmaps_link: string;
+  estimated_cost: number;
+  cost_note?: string;
+  description: string;
+  image_url: string;
+  romantic_tips: string;
+  is_favorite: boolean;
+  is_visited: boolean;
+}
+
+export interface HoneymoonItineraryDay {
+  day_number: number;
+  title: string;
+  date_label?: string;
+  activities: {
+    time: string;
+    title: string;
+    description: string;
+    icon_type: 'hotel' | 'photo' | 'nature' | 'cafe' | 'unique' | 'travel';
+    location?: string;
+  }[];
+}
+
+export interface PackingItem {
+  id: string;
+  name: string;
+  category: 'dokumen' | 'outfit' | 'elektronik' | 'kesehatan' | 'lainnya';
+  for_person: 'Fikri' | 'Nadya' | 'Bersama';
+  is_packed: boolean;
+}

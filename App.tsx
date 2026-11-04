@@ -17,6 +17,7 @@ import GuestPass from './pages/GuestPass';
 import GuestAdministration from './pages/GuestAdministration';
 import CheckinValidation from './pages/CheckinValidation';
 import ScannerDesk from './pages/ScannerDesk';
+import Honeymoon from './pages/Honeymoon';
 import SessionTimeoutManager from './components/SessionTimeoutManager';
 
 const App: React.FC = () => {
@@ -151,6 +152,7 @@ const App: React.FC = () => {
         {/* Menu Khusus Pengantin (Hanya Fikri & Nadya, akun staff/resepsi dialihkan ke scanner) */}
         <Route path="/lamaran" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><BudgetTable moduleName="Lamaran" tableName="lamaran_items" userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
         <Route path="/pernikahan" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><BudgetTable moduleName="Pernikahan" tableName="pernikahan_items" userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
+        <Route path="/honeymoon" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><Honeymoon userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
         <Route path="/pendapatan" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><IncomeList userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
         <Route path="/ideas" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><Ideas userEmail={userEmail} /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />
         <Route path="/prayers" element={session ? (!isStaffOrResepsi ? <Layout userEmail={userEmail}><Prayers /></Layout> : <Navigate to="/scanner" />) : <Navigate to="/login" />} />

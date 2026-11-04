@@ -17,8 +17,11 @@ import {
   Lightbulb,
   QrCode,
   Camera,
-  Palmtree
+  Palmtree,
+  X,
+  Loader2
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { supabase } from '../supabase';
 
 interface LayoutProps {
@@ -30,6 +33,8 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -66,9 +71,26 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
     return () => clearInterval(interval);
   }, [userEmail, location.pathname, isStaff]);
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate('/login');
+  const handleLogoutClick = () => {
+    setIsLogoutConfirmOpen(true);
+  };
+
+  const handleConfirmLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await supabase.auth.signOut();
+      toast.success('Berhasil logout dari sistem.', {
+        icon: '👋',
+        duration: 3000
+      });
+      navigate('/login');
+    } catch (err) {
+      console.warn('Signout error:', err);
+      navigate('/login');
+    } finally {
+      setIsLoggingOut(false);
+      setIsLogoutConfirmOpen(false);
+    }
   };
 
   const navItems = isStaff ? [
@@ -177,9 +199,9 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
           </div>
         </div>
         <button
-          onClick={handleLogout}
+          onClick={handleLogoutClick}
           className={`
-            w-full flex items-center p-3 rounded-xl text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all group
+            w-full flex items-center p-3 rounded-xl text-gray-400 hover:bg-red-50 hover:text-red-600 transition-all group cursor-pointer
             ${isCollapsed ? 'justify-center' : 'space-x-3'}
           `}
         >
@@ -215,6 +237,91 @@ const Layout: React.FC<LayoutProps> = ({ children, userEmail }) => {
           <div className="max-w-7xl mx-auto animate-fade-in">{children}</div>
         </div>
       </main>
+
+      {/* MODAL KONFIRMASI LOGOUT */}
+      {isLogoutConfirmOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-maroon-900/50 backdrop-blur-sm animate-fade-in"
+            onClick={() => !isLoggingOut && setIsLogoutConfirmOpen(false)}
+          />
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl relative z-10 overflow-hidden animate-slide-up border-2 border-gold-300">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-maroon via-maroon-700 to-[#5a0e17] px-6 py-5 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-9 h-9 rounded-xl bg-white/15 text-gold flex items-center justify-center border border-white/20">
+                  <LogOut size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-serif font-bold text-gold">Konfirmasi Keluar</h3>
+                  <p className="text-[10px] text-amber-200 uppercase tracking-widest font-semibold">Fikri &amp; Nadya Wedding Portal</p>
+                </div>
+              </div>
+              <button
+                disabled={isLoggingOut}
+                onClick={() => setIsLogoutConfirmOpen(false)}
+                className="p-1.5 rounded-full hover:bg-white/10 text-stone-300 hover:text-white transition-colors cursor-pointer"
+                title="Tutup"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 sm:p-7 space-y-4 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto shadow-inner">
+                <LogOut size={28} />
+              </div>
+
+              <div className="space-y-1.5">
+                <h4 className="font-serif text-lg font-bold text-stone-900">
+                  Apakah Anda yakin ingin keluar?
+                </h4>
+                <p className="text-xs text-stone-500 leading-relaxed max-w-xs mx-auto">
+                  Sesi login aktif Anda akan diakhiri. Anda perlu memasukkan email &amp; kata sandi kembali untuk membuka portal ini.
+                </p>
+              </div>
+
+              {/* Account active chip */}
+              <div className="bg-stone-50 p-3 rounded-2xl border border-stone-200 flex items-center justify-center space-x-2 text-xs text-stone-700">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span className="truncate">Login sebagai: <strong>{roleLabel}</strong></span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  disabled={isLoggingOut}
+                  onClick={() => setIsLogoutConfirmOpen(false)}
+                  className="w-full py-3 px-4 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isLoggingOut}
+                  onClick={handleConfirmLogout}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-red-600 to-maroon hover:brightness-110 text-white font-bold text-xs uppercase tracking-wider shadow-lg hover:shadow-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50 active:scale-95"
+                >
+                  {isLoggingOut ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Sedang Keluar...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogOut size={14} />
+                      <span>Ya, Keluar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

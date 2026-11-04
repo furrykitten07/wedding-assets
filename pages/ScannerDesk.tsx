@@ -133,6 +133,30 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
   const [filterKategori, setFilterKategori] = useState<'all' | 'VIP' | 'Reguler'>('all');
   const [filterSouvenir, setFilterSouvenir] = useState<'all' | 'given' | 'pending'>('all');
 
+  // Dynamic categories for Pihak Filter
+  const availablePihakList = React.useMemo(() => {
+    const list: string[] = [
+      'Pihak Fikri',
+      'Pihak Nadya',
+      'Rekan Bersama',
+      'Dosen',
+      'Tetangga bunda',
+      'Rekan Ayah',
+      'Teman Nenek'
+    ];
+    const seen = new Set(list.map((c) => c.toLowerCase()));
+    guests.forEach((g) => {
+      if (g.pihak && typeof g.pihak === 'string' && g.pihak.trim()) {
+        const clean = g.pihak.trim();
+        if (!seen.has(clean.toLowerCase())) {
+          seen.add(clean.toLowerCase());
+          list.push(clean);
+        }
+      }
+    });
+    return list;
+  }, [guests]);
+
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -1498,12 +1522,17 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
             <select
               value={filterPihak}
               onChange={(e) => setFilterPihak(e.target.value)}
-              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon"
+              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon cursor-pointer"
             >
-              <option value="all">Semua Pihak</option>
-              <option value="Pihak Fikri">Pihak Fikri</option>
-              <option value="Pihak Nadya">Pihak Nadya</option>
-              <option value="Rekan Bersama">Rekan Bersama</option>
+              <option value="all">Semua Pihak ({guests.length})</option>
+              {availablePihakList.map((p) => {
+                const count = guests.filter((g) => g.pihak === p).length;
+                return (
+                  <option key={p} value={p}>
+                    {p} {count > 0 ? `(${count})` : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
         </div>
@@ -1591,12 +1620,22 @@ const ScannerDesk: React.FC<ScannerDeskProps> = ({ userEmail }) => {
                     {/* Pihak */}
                     <td className="px-4 py-3.5 whitespace-nowrap">
                       <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
                           guest.pihak === 'Pihak Fikri'
-                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
                             : guest.pihak === 'Pihak Nadya'
-                            ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : guest.pihak === 'Rekan Bersama'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : guest.pihak === 'Dosen'
+                            ? 'bg-purple-50 text-purple-800 border-purple-200'
+                            : guest.pihak?.toLowerCase().includes('tetangga') || guest.pihak?.toLowerCase().includes('bunda')
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : guest.pihak?.toLowerCase().includes('ayah')
+                            ? 'bg-cyan-50 text-cyan-800 border-cyan-200'
+                            : guest.pihak?.toLowerCase().includes('nenek')
+                            ? 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200'
+                            : 'bg-stone-100 text-stone-800 border-stone-300'
                         }`}
                       >
                         {guest.pihak}

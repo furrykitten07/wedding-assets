@@ -24,6 +24,7 @@ import {
   MessageSquareHeart,
   Printer,
   ChevronRight,
+  ChevronDown,
   Send,
   UserPlus,
   Award,
@@ -75,6 +76,50 @@ const playChime = (isSuccess: boolean = true, soundEnabled: boolean = true) => {
   }
 };
 
+// Kategori Pihak Pengundang Standar
+export const DEFAULT_PIHAK_CATEGORIES = [
+  'Pihak Fikri',
+  'Pihak Nadya',
+  'Rekan Bersama',
+  'Dosen',
+  'Tetangga bunda',
+  'Rekan Ayah',
+  'Teman Nenek'
+];
+
+// Helper penyimpanan kategori kustom baru ke persistent cache
+export const saveCustomPihakCategory = (category: string) => {
+  const trimmed = category.trim();
+  if (!trimmed) return;
+  try {
+    const saved = localStorage.getItem('wedding_custom_pihak_list');
+    let list: string[] = [];
+    if (saved) {
+      list = JSON.parse(saved);
+      if (!Array.isArray(list)) list = [];
+    }
+    if (!list.some(item => item.toLowerCase() === trimmed.toLowerCase())) {
+      list.push(trimmed);
+      localStorage.setItem('wedding_custom_pihak_list', JSON.stringify(list));
+    }
+  } catch (e) {
+    console.warn('Error saving custom pihak category:', e);
+  }
+};
+
+// Styling badge pihak pengundang responsif & color-coded
+export const getPihakBadgeStyle = (pihak: string) => {
+  const p = (pihak || '').toLowerCase();
+  if (p.includes('fikri')) return 'bg-blue-50 text-blue-800 border-blue-200';
+  if (p.includes('nadya')) return 'bg-rose-50 text-rose-800 border-rose-200';
+  if (p.includes('rekan bersama') || p.includes('bersama')) return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  if (p.includes('dosen')) return 'bg-purple-50 text-purple-800 border-purple-200';
+  if (p.includes('bunda') || p.includes('tetangga')) return 'bg-amber-50 text-amber-800 border-amber-200';
+  if (p.includes('ayah')) return 'bg-cyan-50 text-cyan-800 border-cyan-200';
+  if (p.includes('nenek')) return 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200';
+  return 'bg-stone-100 text-stone-800 border-stone-300';
+};
+
 interface GuestAdministrationProps {
   userEmail: string;
 }
@@ -100,9 +145,68 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
     nama_keluarga: '',
     kategori_tamu: 'Reguler' as 'VIP' | 'Reguler',
     jatah_tamu: 2,
-    pihak: 'Pihak Fikri' as 'Pihak Fikri' | 'Pihak Nadya' | 'Rekan Bersama',
+    pihak: 'Pihak Fikri' as string,
     no_whatsapp: ''
   });
+
+  // State untuk Combobox / Searchable & Creatable Pihak Pengundang
+  const [isComboboxOpen, setIsComboboxOpen] = useState(false);
+  const comboboxRef = useRef<HTMLDivElement | null>(null);
+
+  // Daftar lengkap kategori pihak pengundang (Default + Cache Lokal + Database buku_tamu)
+  const availablePihakList = React.useMemo(() => {
+    const list: string[] = [...DEFAULT_PIHAK_CATEGORIES];
+    const seen = new Set(list.map((c) => c.toLowerCase()));
+
+    // Custom categories dari localStorage
+    try {
+      const saved = localStorage.getItem('wedding_custom_pihak_list');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((c) => {
+            if (typeof c === 'string' && c.trim() && !seen.has(c.trim().toLowerCase())) {
+              seen.add(c.trim().toLowerCase());
+              list.push(c.trim());
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Error parsing custom pihak:', e);
+    }
+
+    // Ambil dari database (buku_tamu)
+    guests.forEach((g) => {
+      if (g.pihak && typeof g.pihak === 'string' && g.pihak.trim()) {
+        const clean = g.pihak.trim();
+        if (!seen.has(clean.toLowerCase())) {
+          seen.add(clean.toLowerCase());
+          list.push(clean);
+        }
+      }
+    });
+
+    return list;
+  }, [guests]);
+
+  // Saran pihak yang difilter secara real-time saat mengetik
+  const filteredPihakSuggestions = React.useMemo(() => {
+    const query = (formData.pihak || '').trim().toLowerCase();
+    if (!query) return availablePihakList;
+    return availablePihakList.filter((item) => item.toLowerCase().includes(query));
+  }, [availablePihakList, formData.pihak]);
+
+  // Outside click listener untuk menutup dropdown combobox
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+        setIsComboboxOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Scanner state
   const [isScanning, setIsScanning] = useState(false);
@@ -523,6 +627,10 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
       const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
       const newTicketCode = `FN-${randomCode}`;
       const paxQuota = Math.min(30, Math.max(1, Number(formData.jatah_tamu) || 2));
+      const finalPihak = formData.pihak.trim() || 'Pihak Fikri';
+
+      // Simpan kategori pihak kustom baru ke persistent cache
+      saveCustomPihakCategory(finalPihak);
 
       const payload = {
         ticket_code: newTicketCode,
@@ -532,7 +640,7 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
         jatah_tamu: paxQuota,
         jumlah_tamu: paxQuota,
         jumlah_hadir_konfirmasi: paxQuota,
-        pihak: formData.pihak,
+        pihak: finalPihak,
         no_whatsapp: formData.no_whatsapp.trim() || null,
         is_attended: false,
         is_souvenir_given: false
@@ -543,8 +651,11 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
 
       // Sinkronisasi buat data di tabel tamu (Daftar Tamu)
       try {
-        const tamuPihak = formData.pihak.includes('Nadya') ? 'Nadya' : 'Fikri';
-        const tamuKategori = formData.kategori_tamu === 'VIP' ? 'Keluarga Besar' : 'Teman Kerja';
+        const tamuPihak = finalPihak.toLowerCase().includes('nadya') ? 'Nadya' : 'Fikri';
+        const isStandardPihak = finalPihak.includes('Fikri') || finalPihak.includes('Nadya') || finalPihak.includes('Bersama');
+        const tamuKategori = isStandardPihak
+          ? (formData.kategori_tamu === 'VIP' ? 'Keluarga Besar' : 'Teman Kerja')
+          : finalPihak;
         const membawaPasangan = paxQuota > 1;
         const jumlahTambahan = paxQuota > 1 ? paxQuota - 1 : 0;
         await supabase.from('tamu').insert([{
@@ -560,9 +671,10 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
       }
 
       toast.success(`Tamu ${formData.nama_keluarga} berhasil didaftarkan! Link undangan siap.`);
-      logActivity(userEmail, 'create', 'Tamu', `Daftarkan Tamu: ${formData.nama_keluarga} (${formData.kategori_tamu} - ${newTicketCode})`);
+      logActivity(userEmail, 'create', 'Tamu', `Daftarkan Tamu: ${formData.nama_keluarga} (${formData.kategori_tamu} - ${finalPihak} - ${newTicketCode})`);
 
       setIsAddModalOpen(false);
+      setIsComboboxOpen(false);
       setFormData({
         nama_keluarga: '',
         kategori_tamu: 'Reguler',
@@ -1101,12 +1213,17 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
             <select
               value={filterPihak}
               onChange={(e) => setFilterPihak(e.target.value)}
-              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon"
+              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 outline-none focus:border-maroon cursor-pointer"
             >
-              <option value="all">Semua Pihak</option>
-              <option value="Pihak Fikri">Pihak Fikri</option>
-              <option value="Pihak Nadya">Pihak Nadya</option>
-              <option value="Rekan Bersama">Rekan Bersama</option>
+              <option value="all">Semua Pihak ({guests.length})</option>
+              {availablePihakList.map((p) => {
+                const count = guests.filter((g) => g.pihak === p).length;
+                return (
+                  <option key={p} value={p}>
+                    {p} {count > 0 ? `(${count})` : ''}
+                  </option>
+                );
+              })}
             </select>
           </div>
         </div>
@@ -1194,13 +1311,9 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                     {/* Pihak */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          guest.pihak === 'Pihak Fikri'
-                            ? 'bg-blue-50 text-blue-800 border border-blue-200'
-                            : guest.pihak === 'Pihak Nadya'
-                            ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                            : 'bg-amber-50 text-amber-800 border border-amber-200'
-                        }`}
+                        className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${getPihakBadgeStyle(
+                          guest.pihak
+                        )}`}
                       >
                         {guest.pihak}
                       </span>
@@ -1636,19 +1749,135 @@ const GuestAdministration: React.FC<GuestAdministrationProps> = ({ userEmail }) 
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
-                  Pihak Pengundang
-                </label>
-                <select
-                  value={formData.pihak}
-                  onChange={(e) => setFormData({ ...formData, pihak: e.target.value as any })}
-                  className="w-full px-3.5 py-3 rounded-xl border border-stone-300 font-bold text-stone-800 text-xs outline-none focus:border-maroon shadow-sm cursor-pointer"
-                >
-                  <option value="Pihak Fikri">Pihak Fikri (Pria)</option>
-                  <option value="Pihak Nadya">Pihak Nadya (Wanita)</option>
-                  <option value="Rekan Bersama">Rekan Bersama</option>
-                </select>
+              {/* Pihak Pengundang Combobox (Ketik bebas / Pilih Dropdown / Kategori Baru Otomatis Tersimpan) */}
+              <div className="space-y-1 relative" ref={comboboxRef}>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-maroon uppercase tracking-wider block">
+                    Pihak Pengundang
+                  </label>
+                  <span className="text-[10px] text-stone-400 font-medium">Bisa diketik atau pilih</span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formData.pihak}
+                    onChange={(e) => {
+                      setFormData({ ...formData, pihak: e.target.value });
+                      setIsComboboxOpen(true);
+                    }}
+                    onFocus={() => setIsComboboxOpen(true)}
+                    placeholder="Pilih atau ketik (Dosen, Tetangga bunda, Rekan Ayah...)"
+                    className="w-full pl-3.5 pr-10 py-3 rounded-xl border border-stone-300 font-bold text-stone-800 text-xs outline-none focus:border-maroon focus:ring-2 focus:ring-maroon/10 shadow-sm transition-all bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setIsComboboxOpen(!isComboboxOpen)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-stone-400 hover:text-maroon transition-colors cursor-pointer rounded-lg"
+                    tabIndex={-1}
+                    aria-label="Toggle dropdown pihak"
+                  >
+                    <ChevronDown
+                      size={16}
+                      className={`transition-transform duration-200 ${isComboboxOpen ? 'rotate-180 text-maroon' : ''}`}
+                    />
+                  </button>
+                </div>
+
+                {/* Dropdown Menu Autocomplete & Dynamic Creatable Suggestions */}
+                {isComboboxOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-stone-200 rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto divide-y divide-stone-100 animate-fade-in custom-scrollbar">
+                    {/* Jika input ada isinya dan belum ada di daftar kategori, tawarkan opsi tambah kategori baru */}
+                    {formData.pihak.trim() &&
+                      !availablePihakList.some(
+                        (item) => item.toLowerCase() === formData.pihak.trim().toLowerCase()
+                      ) && (
+                        <div
+                          onClick={() => {
+                            setIsComboboxOpen(false);
+                          }}
+                          className="px-3.5 py-2.5 bg-amber-50/80 hover:bg-amber-100 cursor-pointer flex items-center justify-between text-xs text-amber-950 font-semibold group transition-colors"
+                        >
+                          <div className="flex items-center space-x-2 truncate">
+                            <Sparkles size={14} className="text-gold shrink-0" />
+                            <span className="truncate">
+                              Gunakan Kategori Baru: <strong className="text-maroon">"{formData.pihak.trim()}"</strong>
+                            </span>
+                          </div>
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold uppercase tracking-wider shrink-0 ml-2">
+                            + Baru
+                          </span>
+                        </div>
+                      )}
+
+                    {/* Daftar opsi kategori yang cocok */}
+                    {filteredPihakSuggestions.length > 0 ? (
+                      filteredPihakSuggestions.map((item) => {
+                        const isSelected = formData.pihak.trim().toLowerCase() === item.toLowerCase();
+                        return (
+                          <div
+                            key={item}
+                            onClick={() => {
+                              setFormData({ ...formData, pihak: item });
+                              setIsComboboxOpen(false);
+                            }}
+                            className={`px-3.5 py-2.5 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${
+                              isSelected
+                                ? 'bg-maroon/10 text-maroon font-bold'
+                                : 'hover:bg-stone-50 text-stone-700'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2">
+                              <span
+                                className={`w-2 h-2 rounded-full ${
+                                  isSelected ? 'bg-maroon' : 'bg-stone-300'
+                                }`}
+                              />
+                              <span>{item}</span>
+                            </div>
+                            {isSelected && <Check size={14} className="text-maroon" />}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="px-3.5 py-3 text-center text-xs text-stone-400">
+                        Tidak ada kategori yang cocok. Tekan Enter / simpan untuk menggunakan kategori baru ini.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Quick Selection Pills (Shortcut 1-Klik) */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    'Pihak Fikri',
+                    'Pihak Nadya',
+                    'Rekan Bersama',
+                    'Dosen',
+                    'Tetangga bunda',
+                    'Rekan Ayah',
+                    'Teman Nenek'
+                  ].map((p) => {
+                    const isActive = formData.pihak.trim().toLowerCase() === p.toLowerCase();
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => {
+                          setFormData({ ...formData, pihak: p });
+                          setIsComboboxOpen(false);
+                        }}
+                        className={`text-[10px] px-2.5 py-1 rounded-lg border font-bold transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-maroon text-gold border-maroon shadow-xs'
+                            : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100 hover:text-stone-900'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 

@@ -51,7 +51,11 @@ const CATEGORIES = [
   'Teman Organisasi',
   'Teman Komplek Rumah',
   'Keluarga Besar',
-  'Keluarga Inti'
+  'Keluarga Inti',
+  'Dosen',
+  'Tetangga bunda',
+  'Rekan Ayah',
+  'Teman Nenek'
 ];
 
 const GuestList: React.FC<{ userEmail: string }> = ({ userEmail }) => {

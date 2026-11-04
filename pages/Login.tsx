@@ -236,10 +236,10 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               {/* Submit Button with Loading Indicator */}
               <button
                 type="submit"
-                disabled={loading || isTransitioning}
+                disabled={loading}
                 className="w-full mt-4 bg-maroon hover:bg-maroon-800 text-gold hover:text-white py-4 px-6 rounded-2xl font-bold text-sm tracking-wide shadow-lg shadow-maroon/20 hover:shadow-xl hover:shadow-maroon/30 border border-gold-400/40 hover:border-gold flex items-center justify-center space-x-2 transition-all duration-300 active:scale-[0.99] disabled:opacity-60 group cursor-pointer"
               >
-                {loading || isTransitioning ? (
+                {loading ? (
                   <>
                     <Loader2 size={18} className="animate-spin text-gold" />
                     <span>Memverifikasi & Menyiapkan Portal...</span>

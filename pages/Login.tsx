@@ -17,7 +17,7 @@ import {
 import toast from 'react-hot-toast';
 
 interface LoginProps {
-  onLoginSuccess?: (session: any) => void;
+  onLoginSuccess?: (session: any, user?: any) => void;
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
@@ -26,13 +26,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inputsReady, setInputsReady] = useState(false);
-
-  // State untuk animasi transisi loading mewah & romantis menuju dashboard
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [transitionProgress, setTransitionProgress] = useState(15);
-  const [transitionStatusText, setTransitionStatusText] = useState('Mengikat Niat Suci...');
-  const [transitionSubText, setTransitionSubText] = useState('Bismillahir-Rahmanir-Rahim');
-  const [authenticatedUserName, setAuthenticatedUserName] = useState('');
 
   const navigate = useNavigate();
 
@@ -65,83 +58,25 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (error) throw error;
       
       const userEmail = data.user?.email || '';
-      const resolvedName = data.user?.user_metadata?.name || data.user?.name || userEmail.split('@')[0];
-      setAuthenticatedUserName(resolvedName);
 
       // Catat log aktivitas login
       await logActivity(userEmail, 'login', 'Auth', 'User berhasil login ke sistem');
-      
+
+      // Dispatch event transisi loading romantis secara instan ke level aplikasi (App.tsx)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('wedding_start_login_transition', {
+          detail: { session: data.session, user: data.user }
+        }));
+      }
+
       // Update session pada state induk secara sinkron
       if (data.session && onLoginSuccess) {
-        onLoginSuccess(data.session);
+        onLoginSuccess(data.session, data.user);
       }
-
-      // Deteksi identitas pengguna untuk pesan romantis personal
-      const cleanEmail = userEmail.toLowerCase();
-      const isFikri = cleanEmail.includes('fikri');
-      const isNadya = cleanEmail.includes('nadya');
-      const isStaffOrResepsi = 
-        cleanEmail.includes('staff') ||
-        cleanEmail.includes('resepsi') || 
-        cleanEmail.includes('scanner') || 
-        cleanEmail.includes('panitia') ||
-        data.user?.role === 'staff' ||
-        data.user?.role === 'resepsi' ||
-        data.user?.user_metadata?.role === 'staff' ||
-        data.user?.user_metadata?.role === 'resepsi';
-
-      let personalGreeting = `Selamat Datang, ${resolvedName} ❤️`;
-      let personalQuote = "Menyatukan dua hati, dua doa, dan dua takdir dalam ridho-Nya.";
-      if (isFikri) {
-        personalGreeting = "Selamat Datang, Calon Imamku (Fikri) 💍";
-        personalQuote = "Bismillah, bersamamu setiap langkah terasa begitu bermakna & menenangkan jiwa.";
-      } else if (isNadya) {
-        personalGreeting = "Selamat Datang, Bidadari Surgaku (Nadya) 🌸";
-        personalQuote = "Setiap detik bersamamu adalah jawaban terindah dari setiap doa dalam sujudku.";
-      } else if (isStaffOrResepsi) {
-        personalGreeting = "Selamat Datang di Hari Bahagia Fikri & Nadya ✨";
-        personalQuote = "Terima kasih telah menjadi bagian berharga dalam menyukseskan hari istimewa kami.";
-      }
-
-      const targetPath = isStaffOrResepsi ? '/scanner' : '/';
-
-      // Aktifkan animasi transisi loading mewah & romantis menuju dashboard
-      setIsTransitioning(true);
-      setTransitionProgress(20);
-      setTransitionStatusText('Mengikat Niat Suci...');
-      setTransitionSubText('Bismillahir-Rahmanir-Rahim');
-
-      // Tahap 2: Menyatukan Dua Hati (650ms)
-      setTimeout(() => {
-        setTransitionProgress(55);
-        setTransitionStatusText('Menyatukan Dua Hati Menuju Ridho-Nya...');
-        setTransitionSubText('Dua Hati, Satu Doa, Selamanya Bersamamu...');
-      }, 650);
-
-      // Tahap 3: Pesan Cinta Personal (1350ms)
-      setTimeout(() => {
-        setTransitionProgress(85);
-        setTransitionStatusText(personalGreeting);
-        setTransitionSubText(personalQuote);
-      }, 1350);
-
-      // Tahap 4: Membuka Mahligai Cinta (2050ms)
-      setTimeout(() => {
-        setTransitionProgress(100);
-        setTransitionStatusText('Membuka Mahligai Cinta Fikri & Nadya...');
-        setTransitionSubText('Menuju Ruang Bahagia Kita ❤️');
-      }, 2050);
-
-      // Tahap 5: Selesai & alihkan ke dashboard (2350ms)
-      setTimeout(() => {
-        toast.success(personalGreeting, { id: 'login-toast', duration: 4000 });
-        navigate(targetPath, { replace: true });
-      }, 2350);
 
     } catch (error: any) {
       toast.error(error.message || 'Login gagal. Periksa kembali username & password.');
       setLoading(false);
-      setIsTransitioning(false);
     }
   };
 
@@ -154,136 +89,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
 
       {/* Subtle Pattern Texture */}
       <div className="absolute inset-0 opacity-[0.025] pointer-events-none bg-[radial-gradient(#800000_1px,transparent_1px)] [background-size:24px_24px]"></div>
-
-      {/* OVERLAY ANIMASI LOADING ROMANTIS & SO-SWEET MENUJU DASHBOARD */}
-      {isTransitioning && (
-        <div className="fixed inset-0 z-[100] bg-gradient-to-b from-[#1b0205] via-[#36040a] to-[#120103] backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center animate-fade-in font-serif text-white overflow-hidden">
-          
-          {/* FLOATING ROMANTIC HEARTS & ROSE PETALS (ANIMATED PARTICLES) */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            {[
-              { left: '8%', delay: '0s', duration: '6s', size: 16, opacity: 'opacity-40' },
-              { left: '16%', delay: '1.8s', duration: '7s', size: 22, opacity: 'opacity-60' },
-              { left: '25%', delay: '0.6s', duration: '5.5s', size: 14, opacity: 'opacity-30' },
-              { left: '35%', delay: '2.5s', duration: '6.5s', size: 26, opacity: 'opacity-50' },
-              { left: '46%', delay: '1.2s', duration: '8s', size: 20, opacity: 'opacity-60' },
-              { left: '55%', delay: '0.2s', duration: '6s', size: 18, opacity: 'opacity-40' },
-              { left: '64%', delay: '2.1s', duration: '7.5s', size: 24, opacity: 'opacity-50' },
-              { left: '74%', delay: '0.9s', duration: '5.8s', size: 15, opacity: 'opacity-35' },
-              { left: '83%', delay: '2.8s', duration: '6.8s', size: 28, opacity: 'opacity-60' },
-              { left: '92%', delay: '1.4s', duration: '7.2s', size: 18, opacity: 'opacity-45' },
-              { left: '12%', delay: '3.5s', duration: '6.2s', size: 20, opacity: 'opacity-40' },
-              { left: '88%', delay: '3.8s', duration: '7.8s', size: 22, opacity: 'opacity-50' }
-            ].map((p, idx) => (
-              <div
-                key={idx}
-                className={`absolute bottom-0 text-rose-400 ${p.opacity}`}
-                style={{
-                  left: p.left,
-                  animation: `floatUpRomantic ${p.duration} ease-in-out infinite`,
-                  animationDelay: p.delay
-                }}
-              >
-                {idx % 2 === 0 ? (
-                  <Heart size={p.size} className="fill-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.8)]" />
-                ) : (
-                  <Flower2 size={p.size} className="text-amber-300 drop-shadow-[0_0_8px_rgba(252,211,77,0.8)]" />
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* SOFT GOLDEN BOKEH ORB BEHIND CENTERPIECE */}
-          <div className="absolute w-96 h-96 bg-gradient-to-r from-rose-600/20 via-amber-500/25 to-maroon-700/30 rounded-full blur-[100px] pointer-events-none animate-pulse-aura" />
-
-          {/* CENTERPIECE: DUAL INTERTWINED WEDDING RINGS & GLOWING BEATING HEART */}
-          <div className="relative mb-8 z-10">
-            {/* Pulsing Aura Circle */}
-            <div className="absolute inset-0 -m-6 rounded-full bg-gold/15 blur-xl animate-pulse-aura" />
-
-            {/* Glowing Golden Outer Ring */}
-            <div className="w-36 h-36 sm:w-40 sm:h-40 rounded-full border-2 border-gold-300/40 animate-ring-glow flex items-center justify-center relative">
-              
-              {/* Rotating Ring Indicator with Sparkle */}
-              <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-gold-300 animate-spin" style={{ animationDuration: '4s' }} />
-
-              {/* Central Glowing Seal */}
-              <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-br from-[#7a0c17] via-[#94111f] to-[#55070e] border-2 border-gold flex flex-col items-center justify-center shadow-[0_0_30px_rgba(212,175,55,0.5)] transform hover:scale-105 transition-transform relative overflow-hidden">
-                <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:8px_8px]" />
-                
-                {/* Monogram */}
-                <span className="font-serif text-3xl sm:text-4xl font-black text-gold tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] relative z-10">
-                  FN
-                </span>
-                <span className="text-[8px] uppercase tracking-[0.3em] text-amber-200/90 font-bold relative z-10">
-                  Forever
-                </span>
-              </div>
-
-              {/* Left Interlocking Ring: Fikri's Gold Band */}
-              <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full border-2 border-gold-400 bg-black/50 backdrop-blur-xs flex items-center justify-center shadow-lg transform -rotate-12">
-                <span className="text-[10px] font-serif font-black text-gold">F</span>
-              </div>
-
-              {/* Right Interlocking Ring: Nadya's Diamond Band */}
-              <div className="absolute -right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full border-2 border-amber-300 bg-black/50 backdrop-blur-xs flex items-center justify-center shadow-lg transform rotate-12">
-                <span className="text-[10px] font-serif font-black text-amber-200">N</span>
-              </div>
-
-              {/* Top Beating Heart Badge */}
-              <div className="absolute -top-3 w-8 h-8 rounded-full bg-gradient-to-br from-rose-500 to-maroon border border-gold flex items-center justify-center shadow-lg animate-heartbeat">
-                <Heart size={15} className="text-white fill-white" />
-              </div>
-
-              {/* Bottom Sparkle Badge */}
-              <div className="absolute -bottom-2.5 px-3 py-0.5 rounded-full bg-black/60 border border-gold/60 text-gold text-[9px] font-sans font-bold uppercase tracking-widest shadow-md flex items-center space-x-1">
-                <Sparkles size={10} className="text-gold" />
-                <span>Walimatul Ursy</span>
-              </div>
-            </div>
-          </div>
-
-          {/* ARABIC BLESSING / DOA SNIPPET */}
-          <div className="mb-3 z-10 max-w-lg">
-            <p className="font-serif text-sm sm:text-base text-amber-300/90 tracking-wide drop-shadow-sm select-none" dir="rtl">
-              بَارَكَ اللَّهُ لَكَ وَبَارَكَ عَلَيْكَ وَجَمَعَ بَيْنَكُمَا فِي خَيْرٍ
-            </p>
-          </div>
-
-          {/* DYNAMIC ROMANTIC HEADING & SWEET QUOTE */}
-          <div className="space-y-2 max-w-lg z-10 min-h-[90px] flex flex-col justify-center">
-            <h2 className="text-2xl sm:text-3xl font-serif font-bold text-white tracking-wide drop-shadow-md transition-all duration-300">
-              {transitionStatusText}
-            </h2>
-            <p className="text-xs sm:text-sm text-amber-200/90 font-serif italic tracking-wide leading-relaxed px-4 transition-all duration-300">
-              "{transitionSubText}"
-            </p>
-          </div>
-
-          {/* ROMANTIC PROGRESS BAR WITH GLOWING HEART POINTER */}
-          <div className="w-72 max-w-xs mt-6 z-10 relative">
-            <div className="w-full bg-black/40 rounded-full h-2.5 p-0.5 border border-gold/40 overflow-hidden shadow-inner backdrop-blur-sm">
-              <div
-                className="bg-gradient-to-r from-amber-400 via-rose-400 to-amber-300 h-full rounded-full transition-all duration-500 ease-out shadow-[0_0_15px_rgba(251,191,36,0.9)]"
-                style={{ width: `${transitionProgress}%` }}
-              />
-            </div>
-            
-            {/* Floating percentage and love note */}
-            <div className="flex items-center justify-between text-[10px] font-sans font-semibold text-amber-200/80 mt-2 px-1">
-              <span>Menuju Bahtera Bahagia</span>
-              <span className="font-mono text-gold font-bold flex items-center space-x-1">
-                <Heart size={10} className="fill-rose-400 text-rose-400 inline" />
-                <span>{transitionProgress}%</span>
-              </span>
-            </div>
-          </div>
-
-          <p className="text-[10px] text-stone-400 font-sans mt-5 uppercase tracking-[0.3em] z-10">
-            Fikri &amp; Nadya Wedding Celebration
-          </p>
-        </div>
-      )}
 
       {/* Main Container Card */}
       <div className="w-full max-w-4xl bg-white rounded-[2.5rem] shadow-[0_20px_60px_-15px_rgba(128,0,0,0.12)] border border-gold-200/50 overflow-hidden relative z-10 transition-all grid grid-cols-1 lg:grid-cols-12 animate-fade-in">

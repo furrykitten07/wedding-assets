@@ -19,10 +19,13 @@ import CheckinValidation from './pages/CheckinValidation';
 import ScannerDesk from './pages/ScannerDesk';
 import Honeymoon from './pages/Honeymoon';
 import SessionTimeoutManager from './components/SessionTimeoutManager';
+import RomanticLoginOverlay from './components/RomanticLoginOverlay';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isLoginTransitioning, setIsLoginTransitioning] = useState(false);
+  const [loginUser, setLoginUser] = useState<any>(null);
 
   // Inisialisasi session & listener auth
   useEffect(() => {
@@ -41,7 +44,11 @@ const App: React.FC = () => {
     initSession();
 
     try {
-      const authRes = supabase.auth.onAuthStateChange((_event: any, newSession: any) => {
+      const authRes = supabase.auth.onAuthStateChange((event: any, newSession: any) => {
+        if (event === 'SIGNED_IN' && newSession) {
+          setIsLoginTransitioning(true);
+          setLoginUser(newSession.user);
+        }
         setSession(newSession);
       });
       subscription = authRes.data?.subscription;
@@ -51,20 +58,40 @@ const App: React.FC = () => {
 
     // Listener custom event untuk sinkronisasi seketika antar layer auth lokal & cloud
     const handleCustomAuthChange = (e: any) => {
-      setSession(e.detail?.session || null);
+      const newSession = e.detail?.session || null;
+      const event = e.detail?.event;
+      if (event === 'SIGNED_IN' && newSession) {
+        setIsLoginTransitioning(true);
+        setLoginUser(newSession.user);
+      }
+      setSession(newSession);
     };
     window.addEventListener('wedding_auth_change', handleCustomAuthChange);
+
+    // Listener khusus trigger transisi romantis dari Login page
+    const handleStartLoginTransition = (e: any) => {
+      setIsLoginTransitioning(true);
+      if (e.detail?.user) {
+        setLoginUser(e.detail.user);
+      }
+    };
+    window.addEventListener('wedding_start_login_transition', handleStartLoginTransition);
 
     return () => {
       if (subscription?.unsubscribe) {
         subscription.unsubscribe();
       }
       window.removeEventListener('wedding_auth_change', handleCustomAuthChange);
+      window.removeEventListener('wedding_start_login_transition', handleStartLoginTransition);
     };
   }, []);
 
   // Handler update login sinkron langsung dari form Login
-  const handleLoginSuccess = (newSession: any) => {
+  const handleLoginSuccess = (newSession: any, user?: any) => {
+    if (newSession) {
+      setIsLoginTransitioning(true);
+      setLoginUser(user || newSession.user);
+    }
     setSession(newSession);
   };
 
@@ -141,6 +168,16 @@ const App: React.FC = () => {
       <Toaster position="top-right" toastOptions={{
         style: { background: '#800000', color: '#D4AF37', borderRadius: '16px', fontWeight: 'bold', border: '1px solid #D4AF37' }
       }} />
+
+      {/* Overlay Animasi Loading Romantis & So Sweet Menuju Dashboard Saat User Berhasil Login */}
+      {isLoginTransitioning && (
+        <RomanticLoginOverlay
+          user={loginUser || session?.user}
+          onComplete={() => {
+            setIsLoginTransitioning(false);
+          }}
+        />
+      )}
 
       {/* Pengawas Waktu Sesi (Inaktivitas 40 Menit & Auto-Logout dengan Peringatan Modal) */}
       <SessionTimeoutManager session={session} onLogout={handleAutoLogout} />

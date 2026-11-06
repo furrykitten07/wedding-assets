@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
-import { supabase } from './supabase';
+import { supabase, checkAndClearLoginInProgress } from './supabase';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -47,8 +47,12 @@ const App: React.FC = () => {
 
     try {
       const authRes = supabase.auth.onAuthStateChange((_event: any, newSession: any) => {
-        // Jangan picu loading screen transisi di onAuthStateChange karena Supabase
-        // otomatis menembakkan event SIGNED_IN saat window/tab kembali aktif (focus)
+        // Cek apakah event ini berasal dari aksi login yang sesungguhnya (bukan window focus / tab switch)
+        const isLoggingIn = checkAndClearLoginInProgress();
+        if (isLoggingIn && newSession) {
+          setIsLoginTransitioning(true);
+          setLoginUser(newSession.user);
+        }
         setSession(newSession);
       });
       subscription = authRes.data?.subscription;
@@ -58,19 +62,21 @@ const App: React.FC = () => {
 
     // Listener custom event untuk sinkronisasi seketika antar layer auth lokal & cloud
     const handleCustomAuthChange = (e: any) => {
-      setSession(e.detail?.session || null);
+      const newSession = e.detail?.session || null;
+      const isLoggingIn = checkAndClearLoginInProgress();
+      if (isLoggingIn && newSession) {
+        setIsLoginTransitioning(true);
+        setLoginUser(newSession.user);
+      }
+      setSession(newSession);
     };
     window.addEventListener('wedding_auth_change', handleCustomAuthChange);
 
-    // Listener khusus trigger transisi romantis HANYA dari aksi submit form di Login page
+    // Listener khusus trigger transisi romantis dari Login page
     const handleStartLoginTransition = (e: any) => {
-      const currentHash = window.location.hash || '';
-      const isAtLoginPage = currentHash.includes('/login') || !sessionRef.current;
-      if (isAtLoginPage) {
-        setIsLoginTransitioning(true);
-        if (e.detail?.user) {
-          setLoginUser(e.detail.user);
-        }
+      setIsLoginTransitioning(true);
+      if (e.detail?.user) {
+        setLoginUser(e.detail.user);
       }
     };
     window.addEventListener('wedding_start_login_transition', handleStartLoginTransition);
@@ -86,9 +92,7 @@ const App: React.FC = () => {
 
   // Handler update login sinkron langsung dari form Login
   const handleLoginSuccess = (newSession: any, user?: any) => {
-    const currentHash = window.location.hash || '';
-    const isAtLoginPage = currentHash.includes('/login') || !sessionRef.current;
-    if (newSession && isAtLoginPage) {
+    if (newSession) {
       setIsLoginTransitioning(true);
       setLoginUser(user || newSession.user);
     }

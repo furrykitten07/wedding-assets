@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase, logActivity } from '../supabase';
+import { supabase, logActivity, setLoginInProgress } from '../supabase';
 import { 
   Heart, 
   Lock, 
@@ -47,6 +47,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
 
     setLoading(true);
+    setLoginInProgress(true);
 
     try {
       const normalizedEmail = email.includes('@') ? email.trim() : `${email.trim()}@wedding.com`;
@@ -58,9 +59,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
       if (error) throw error;
       
       const userEmail = data.user?.email || '';
-
-      // Catat log aktivitas login
-      await logActivity(userEmail, 'login', 'Auth', 'User berhasil login ke sistem');
 
       // Dispatch event transisi loading romantis secara instan ke level aplikasi (App.tsx)
       if (typeof window !== 'undefined') {
@@ -74,7 +72,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         onLoginSuccess(data.session, data.user);
       }
 
+      // Catat log aktivitas login di background
+      logActivity(userEmail, 'login', 'Auth', 'User berhasil login ke sistem').catch(() => {});
+
     } catch (error: any) {
+      setLoginInProgress(false);
       toast.error(error.message || 'Login gagal. Periksa kembali username & password.');
       setLoading(false);
     }

@@ -20,6 +20,33 @@ export const isCloudMode = Boolean(
 // Listener untuk auth state change pada mode lokal & cloud
 let authListeners: Array<(event: string, session: any) => void> = [];
 
+export const setLoginInProgress = (active: boolean) => {
+  if (typeof window === 'undefined') return;
+  if (active) {
+    try { sessionStorage.setItem('wedding_login_in_progress', '1'); } catch (_) {}
+    (window as any).__wedding_login_in_progress = true;
+  } else {
+    try { sessionStorage.removeItem('wedding_login_in_progress'); } catch (_) {}
+    (window as any).__wedding_login_in_progress = false;
+  }
+};
+
+export const checkAndClearLoginInProgress = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  let inProgress = false;
+  try {
+    if (sessionStorage.getItem('wedding_login_in_progress') === '1') {
+      inProgress = true;
+      sessionStorage.removeItem('wedding_login_in_progress');
+    }
+  } catch (_) {}
+  if ((window as any).__wedding_login_in_progress) {
+    inProgress = true;
+    (window as any).__wedding_login_in_progress = false;
+  }
+  return inProgress;
+};
+
 export const notifyAuthChange = (event: string, session: any) => {
   if (session) {
     try {

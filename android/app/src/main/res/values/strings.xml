@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Fikri &amp; Nadya Wedding</string>
+    <string name="title_activity_main">Fikri &amp; Nadya Wedding</string>
+    <string name="package_name">com.fikrinadya.wedding</string>
+    <string name="custom_url_scheme">com.fikrinadya.wedding</string>
+</resources>

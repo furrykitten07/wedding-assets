@@ -6,8 +6,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const rawUrl = (import.meta as any).env.VITE_SUPABASE_URL;
-const rawKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+const DEFAULT_SUPABASE_URL = 'https://zshqgyywfvqufedcxszw.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpzaHFneXl3ZnZxdWZlZGN4c3p3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkzOTQzMjgsImV4cCI6MjA4NDk3MDMyOH0.bYML5T9G8Ar8e3iSiWU5vhqmseAZFTA6Ez6ot_1CCj4';
+
+const rawUrl = (import.meta as any).env.VITE_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+const rawKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_KEY;
 
 export const isCloudMode = Boolean(
   rawUrl && 

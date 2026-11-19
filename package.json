@@ -24,6 +24,7 @@
     "express": "^5.3.0",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.563.0",
+    "motion": "^14.14.0",
     "multer": "^2.5.0",
     "mysql2": "^3.24.6",
     "qrcode": "^1.5.4",

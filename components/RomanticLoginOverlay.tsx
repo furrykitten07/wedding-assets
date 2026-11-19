@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Heart, Sparkles, Flower2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Sparkles, ArrowRight, Heart } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface RomanticLoginOverlayProps {
@@ -7,235 +8,449 @@ interface RomanticLoginOverlayProps {
   onComplete: () => void;
 }
 
+const STAGES = [
+  { key: 'niat', label: 'Niat' },
+  { key: 'doa', label: 'Doa' },
+  { key: 'sambutan', label: 'Sambutan' },
+  { key: 'portal', label: 'Portal' },
+];
+
 const RomanticLoginOverlay: React.FC<RomanticLoginOverlayProps> = ({ user, onComplete }) => {
-  const [progress, setProgress] = useState(15);
-  const [statusText, setStatusText] = useState('Mengikat Niat Suci...');
-  const [subText, setSubText] = useState('Bismillahir-Rahmanir-Rahim');
+  const [stageIndex, setStageIndex] = useState(0);
+  const [progress, setProgress] = useState(12);
   const [isExiting, setIsExiting] = useState(false);
 
   // Deteksi identitas pengguna untuk pesan romantis personal
   const userEmail = (user?.email || '').toLowerCase();
   const userName = user?.user_metadata?.name || user?.name || userEmail.split('@')[0] || 'Keluarga Bahagia';
-  
+
   const isFikri = userEmail.includes('fikri');
   const isNadya = userEmail.includes('nadya');
-  const isStaffOrResepsi = 
+  const isStaffOrResepsi =
     userEmail.includes('staff') ||
-    userEmail.includes('resepsi') || 
-    userEmail.includes('scanner') || 
+    userEmail.includes('resepsi') ||
+    userEmail.includes('scanner') ||
     userEmail.includes('panitia') ||
     user?.role === 'staff' ||
     user?.role === 'resepsi' ||
     user?.user_metadata?.role === 'staff' ||
     user?.user_metadata?.role === 'resepsi';
 
-  let personalGreeting = `Selamat Datang, ${userName} ❤️`;
-  let personalQuote = "Menyatukan dua hati, dua doa, dan dua takdir dalam ridho-Nya.";
+  const { personalGreeting, personalQuote, roleBadge } = useMemo(() => {
+    if (isFikri) {
+      return {
+        personalGreeting: 'Selamat Datang, Calon Imamku',
+        personalQuote: 'Bismillah, bersamamu setiap langkah terasa begitu bermakna & menenangkan jiwa.',
+        roleBadge: 'GROOM • FIKRI',
+      };
+    }
+    if (isNadya) {
+      return {
+        personalGreeting: 'Selamat Datang, Bidadari Surgaku',
+        personalQuote: 'Setiap detik bersamamu adalah jawaban terindah dari setiap doa dalam sujudku.',
+        roleBadge: 'BRIDE • NADYA',
+      };
+    }
+    if (isStaffOrResepsi) {
+      return {
+        personalGreeting: 'Selamat Datang di Hari Bahagia',
+        personalQuote: 'Terima kasih telah menjadi bagian berharga dalam menyukseskan hari istimewa Fikri & Nadya.',
+        roleBadge: 'RECEPTION TEAM',
+      };
+    }
+    return {
+      personalGreeting: `Selamat Datang, ${userName}`,
+      personalQuote: 'Menyatukan dua hati, dua doa, dan dua takdir dalam ridho-Nya.',
+      roleBadge: 'PRIVATE PORTAL',
+    };
+  }, [isFikri, isNadya, isStaffOrResepsi, userName]);
 
-  if (isFikri) {
-    personalGreeting = "Selamat Datang, Calon Imamku (Fikri) 💍";
-    personalQuote = "Bismillah, bersamamu setiap langkah terasa begitu bermakna & menenangkan jiwa.";
-  } else if (isNadya) {
-    personalGreeting = "Selamat Datang, Bidadari Surgaku (Nadya) 🌸";
-    personalQuote = "Setiap detik bersamamu adalah jawaban terindah dari setiap doa dalam sujudku.";
-  } else if (isStaffOrResepsi) {
-    personalGreeting = "Selamat Datang di Hari Bahagia Fikri & Nadya ✨";
-    personalQuote = "Terima kasih telah menjadi bagian berharga dalam menyukseskan hari istimewa kami.";
-  }
+  const stageContent = useMemo(
+    () => [
+      {
+        title: 'Mengikat Niat Suci',
+        subtitle: 'Bismillahir-Rahmanir-Rahim — memulai langkah penuh berkah.',
+      },
+      {
+        title: 'Menyatukan Dua Hati',
+        subtitle: 'Dua hati, satu doa, melangkah bersama menuju ridho-Nya.',
+      },
+      {
+        title: personalGreeting,
+        subtitle: personalQuote,
+      },
+      {
+        title: 'Membuka Portal Bahagia',
+        subtitle: 'Menyiapkan ruang kerja & kendali pernikahan Fikri & Nadya...',
+      },
+    ],
+    [personalGreeting, personalQuote]
+  );
+
+  // Partikel cahaya emas lembut (stabil lewat useMemo agar tidak reset saat re-render)
+  const goldenDust = useMemo(
+    () =>
+      Array.from({ length: 18 }, (_, i) => ({
+        id: i,
+        left: `${6 + ((i * 5.3) % 88)}%`,
+        top: `${12 + ((i * 17.7) % 78)}%`,
+        size: 2 + (i % 3) * 1.5,
+        duration: 4.5 + (i % 5) * 1.1,
+        delay: (i % 6) * 0.4,
+        driftX: i % 2 === 0 ? 16 : -16,
+      })),
+    []
+  );
 
   useEffect(() => {
-    // Stage 1: Inisiasi
-    setProgress(20);
-    setStatusText('Mengikat Niat Suci...');
-    setSubText('Bismillahir-Rahmanir-Rahim');
+    // Stage 1 (0ms)
+    setStageIndex(0);
+    setProgress(22);
 
-    // Stage 2: Menyatukan Dua Hati (650ms)
-    const timer1 = setTimeout(() => {
-      setProgress(55);
-      setStatusText('Menyatukan Dua Hati Menuju Ridho-Nya...');
-      setSubText('Dua Hati, Satu Doa, Selamanya Bersamamu...');
-    }, 650);
+    // Stage 2 (680ms)
+    const t1 = setTimeout(() => {
+      setStageIndex(1);
+      setProgress(52);
+    }, 680);
 
-    // Stage 3: Pesan Cinta Personal (1400ms)
-    const timer2 = setTimeout(() => {
-      setProgress(85);
-      setStatusText(personalGreeting);
-      setSubText(personalQuote);
-    }, 1400);
+    // Stage 3 (1420ms)
+    const t2 = setTimeout(() => {
+      setStageIndex(2);
+      setProgress(82);
+    }, 1420);
 
-    // Stage 4: Membuka Mahligai Cinta (2150ms)
-    const timer3 = setTimeout(() => {
+    // Stage 4 (2250ms)
+    const t3 = setTimeout(() => {
+      setStageIndex(3);
       setProgress(100);
-      setStatusText('Membuka Mahligai Cinta Fikri & Nadya... ❤️');
-      setSubText('Selamat Datang di Ruang Bahagia Kita...');
-    }, 2150);
+    }, 2250);
 
-    // Stage 5: Fade Out & Selesai (2750ms)
-    const timer4 = setTimeout(() => {
+    // Trigger exit choreography (2850ms)
+    const t4 = setTimeout(() => {
       setIsExiting(true);
-    }, 2750);
+    }, 2850);
 
-    // Complete transition (3050ms)
-    const timer5 = setTimeout(() => {
+    // Complete & unmount (3250ms)
+    const t5 = setTimeout(() => {
       toast.success(personalGreeting, { id: 'login-toast', duration: 4000 });
       onComplete();
-    }, 3050);
+    }, 3250);
 
     return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-      clearTimeout(timer4);
-      clearTimeout(timer5);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
     };
-  }, [personalGreeting, personalQuote, onComplete]);
+  }, [personalGreeting, onComplete]);
 
   const handleSkip = () => {
+    if (isExiting) return;
     setIsExiting(true);
     setTimeout(() => {
       toast.success(personalGreeting, { id: 'login-toast', duration: 3000 });
       onComplete();
-    }, 200);
+    }, 320);
   };
 
+  const currentStage = stageContent[stageIndex] || stageContent[0];
+
   return (
-    <div
-      className={`fixed inset-0 z-[99999] bg-gradient-to-b from-[#180205] via-[#35040a] to-[#120103] backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center font-serif text-white overflow-hidden transition-opacity duration-300 select-none ${
-        isExiting ? 'opacity-0 pointer-events-none' : 'opacity-100'
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={
+        isExiting
+          ? { opacity: 0, scale: 1.04, filter: 'blur(10px)' }
+          : { opacity: 1, scale: 1, filter: 'blur(0px)' }
+      }
+      transition={{ duration: isExiting ? 0.38 : 0.45, ease: [0.22, 1, 0.36, 1] }}
+      className={`fixed inset-0 z-[99999] bg-[#140204] flex flex-col items-center justify-center p-6 text-center font-serif text-white overflow-hidden select-none ${
+        isExiting ? 'pointer-events-none' : ''
       }`}
     >
-      {/* FLOATING ROMANTIC HEARTS & ROSE PETALS (ANIMATED PARTICLES) */}
+      {/* LAYER 1: Royal Velvet Radial Gradient & Organic Breathing Auras */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_#3b060d_0%,_#1d0206_52%,_#0d0102_100%)] pointer-events-none" />
+
+      <motion.div
+        animate={{
+          scale: [1, 1.15, 0.96, 1],
+          opacity: [0.28, 0.46, 0.28],
+          x: [0, 24, -18, 0],
+        }}
+        transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        className="absolute w-[34rem] h-[34rem] rounded-full bg-gradient-to-tr from-[#800000]/40 via-[#d4af37]/20 to-rose-500/20 blur-[120px] pointer-events-none"
+      />
+      <motion.div
+        animate={{
+          scale: [1.05, 0.92, 1.12, 1.05],
+          opacity: [0.16, 0.3, 0.16],
+          y: [0, -28, 18, 0],
+        }}
+        transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut' }}
+        className="absolute w-[24rem] h-[24rem] rounded-full bg-amber-300/15 blur-[100px] pointer-events-none"
+      />
+
+      {/* Subtle Luxury Dot Texture */}
+      <div className="absolute inset-0 opacity-[0.06] pointer-events-none bg-[radial-gradient(#D4AF37_1px,transparent_1px)] [background-size:28px_28px]" />
+
+      {/* LAYER 2: Animated Corner Filigree Frame Lines */}
+      <div className="absolute inset-5 sm:inset-8 pointer-events-none">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.97 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+          className="w-full h-full border border-gold/15 rounded-[2rem] relative"
+        >
+          {/* Corner Accent Dots */}
+          <span className="absolute -top-1 -left-1 w-2 h-2 rounded-full bg-gold/60" />
+          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-gold/60" />
+          <span className="absolute -bottom-1 -left-1 w-2 h-2 rounded-full bg-gold/60" />
+          <span className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-gold/60" />
+        </motion.div>
+      </div>
+
+      {/* LAYER 3: Ethereal Floating Champagne Gold Stardust */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {[
-          { left: '6%', delay: '0s', duration: '5.8s', size: 16, opacity: 'opacity-40' },
-          { left: '14%', delay: '1.6s', duration: '6.5s', size: 22, opacity: 'opacity-60' },
-          { left: '22%', delay: '0.4s', duration: '5.2s', size: 14, opacity: 'opacity-35' },
-          { left: '32%', delay: '2.2s', duration: '6.2s', size: 26, opacity: 'opacity-50' },
-          { left: '42%', delay: '1.0s', duration: '7.5s', size: 20, opacity: 'opacity-65' },
-          { left: '50%', delay: '0.2s', duration: '5.6s', size: 18, opacity: 'opacity-40' },
-          { left: '60%', delay: '1.8s', duration: '7.0s', size: 24, opacity: 'opacity-50' },
-          { left: '70%', delay: '0.8s', duration: '5.4s', size: 15, opacity: 'opacity-35' },
-          { left: '80%', delay: '2.5s', duration: '6.5s', size: 28, opacity: 'opacity-60' },
-          { left: '88%', delay: '1.2s', duration: '6.8s', size: 18, opacity: 'opacity-45' },
-          { left: '94%', delay: '3.0s', duration: '5.9s', size: 20, opacity: 'opacity-40' },
-          { left: '10%', delay: '3.2s', duration: '7.2s', size: 22, opacity: 'opacity-50' }
-        ].map((p, idx) => (
-          <div
-            key={idx}
-            className={`absolute bottom-0 text-rose-400 ${p.opacity}`}
-            style={{
-              left: p.left,
-              animation: `floatUpRomantic ${p.duration} ease-in-out infinite`,
-              animationDelay: p.delay
+        {goldenDust.map((dot) => (
+          <motion.span
+            key={dot.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{
+              opacity: [0, 0.75, 0],
+              y: [20, -70],
+              x: [0, dot.driftX, 0],
+              scale: [0.6, 1.2, 0.6],
             }}
-          >
-            {idx % 2 === 0 ? (
-              <Heart size={p.size} className="fill-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.85)]" />
-            ) : (
-              <Flower2 size={p.size} className="text-amber-300 drop-shadow-[0_0_8px_rgba(252,211,77,0.85)]" />
-            )}
-          </div>
+            transition={{
+              duration: dot.duration,
+              delay: dot.delay,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+            style={{
+              left: dot.left,
+              top: dot.top,
+              width: dot.size,
+              height: dot.size,
+            }}
+            className="absolute rounded-full bg-amber-200 shadow-[0_0_10px_rgba(251,191,36,0.9)]"
+          />
         ))}
       </div>
 
-      {/* SOFT GOLDEN BOKEH ORB BEHIND CENTERPIECE */}
-      <div className="absolute w-[30rem] h-[30rem] bg-gradient-to-r from-rose-600/20 via-amber-500/25 to-maroon-700/30 rounded-full blur-[110px] pointer-events-none animate-pulse-aura" />
+      {/* LAYER 4: Main Content Stack */}
+      <div className="relative z-10 flex flex-col items-center w-full max-w-lg">
+        {/* Top Role / Ceremony Pill */}
+        <motion.div
+          initial={{ opacity: 0, y: -14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 24, delay: 0.05 }}
+          className="mb-7 inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-white/[0.06] border border-gold/30 backdrop-blur-md shadow-[0_0_24px_rgba(212,175,55,0.12)]"
+        >
+          <Sparkles size={12} className="text-gold" />
+          <span className="text-[10px] font-sans font-bold uppercase tracking-[0.28em] text-amber-200/90">
+            {roleBadge}
+          </span>
+        </motion.div>
 
-      {/* CENTERPIECE: DUAL INTERTWINED WEDDING RINGS & GLOWING BEATING HEART */}
-      <div className="relative mb-7 z-10">
-        {/* Pulsing Aura Circle */}
-        <div className="absolute inset-0 -m-6 rounded-full bg-gold/15 blur-xl animate-pulse-aura" />
+        {/* CENTERPIECE: Bespoke SVG Animated Golden Crest + Monogram */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.82 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 220, damping: 20, delay: 0.1 }}
+          className="relative mb-8 flex items-center justify-center"
+        >
+          {/* Breathing Halo */}
+          <motion.div
+            animate={{ scale: [1, 1.18, 1], opacity: [0.22, 0.45, 0.22] }}
+            transition={{ duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
+            className="absolute w-44 h-44 rounded-full bg-gold/20 blur-2xl pointer-events-none"
+          />
 
-        {/* Glowing Golden Outer Ring */}
-        <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full border-2 border-gold-300/40 animate-ring-glow flex items-center justify-center relative">
-          
-          {/* Rotating Ring Indicator with Sparkle */}
-          <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-gold-300 animate-spin" style={{ animationDuration: '3.8s' }} />
+          {/* Outer Orbiting Ring with Golden Star Node */}
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 14, repeat: Infinity, ease: 'linear' }}
+            className="relative w-40 h-40 sm:w-44 sm:h-44 flex items-center justify-center"
+          >
+            <svg viewBox="0 0 180 180" className="w-full h-full">
+              {/* Outer Dashed Celestial Orbit */}
+              <circle
+                cx="90"
+                cy="90"
+                r="84"
+                fill="none"
+                stroke="rgba(212,175,55,0.28)"
+                strokeWidth="1"
+                strokeDasharray="3 6"
+              />
+              {/* Animated Drawing Gold Arc */}
+              <motion.circle
+                cx="90"
+                cy="90"
+                r="76"
+                fill="none"
+                stroke="url(#goldCrestGrad)"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                initial={{ pathLength: 0, opacity: 0.3 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }}
+              />
+              <defs>
+                <linearGradient id="goldCrestGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#FDE68A" />
+                  <stop offset="50%" stopColor="#D4AF37" />
+                  <stop offset="100%" stopColor="#B45309" />
+                </linearGradient>
+              </defs>
+            </svg>
+            {/* Glowing Orbit Star */}
+            <span className="absolute top-1 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-amber-200 shadow-[0_0_14px_rgba(253,230,138,1)]" />
+          </motion.div>
 
-          {/* Central Glowing Seal */}
-          <div className="w-24 h-24 sm:w-30 sm:h-30 rounded-3xl bg-gradient-to-br from-[#7a0c17] via-[#94111f] to-[#55070e] border-2 border-gold flex flex-col items-center justify-center shadow-[0_0_35px_rgba(212,175,55,0.6)] transform hover:scale-105 transition-transform relative overflow-hidden">
-            <div className="absolute inset-0 opacity-20 bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:8px_8px]" />
-            
-            {/* Monogram */}
-            <span className="font-serif text-3xl sm:text-4xl font-black text-gold tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] relative z-10">
+          {/* Counter-Rotating Inner Fine Ring */}
+          <motion.div
+            animate={{ rotate: -360 }}
+            transition={{ duration: 22, repeat: Infinity, ease: 'linear' }}
+            className="absolute w-32 h-32 sm:w-36 sm:h-36 rounded-full border border-gold/25 pointer-events-none"
+          />
+
+          {/* Central Floating Monogram Medallion */}
+          <motion.div
+            animate={{ y: [0, -4, 0] }}
+            transition={{ duration: 3.6, repeat: Infinity, ease: 'easeInOut' }}
+            className="absolute w-24 h-24 sm:w-28 sm:h-28 rounded-[1.75rem] bg-gradient-to-br from-[#7c0b16] via-[#53050d] to-[#2d0207] border border-gold/70 shadow-[0_12px_40px_rgba(212,175,55,0.35),inset_0_1px_1px_rgba(255,255,255,0.25)] flex flex-col items-center justify-center overflow-hidden"
+          >
+            {/* Animated Metallic Sheen Sweep */}
+            <motion.div
+              animate={{ x: ['-140%', '160%'] }}
+              transition={{ duration: 2.6, repeat: Infinity, repeatDelay: 1.8, ease: 'easeInOut' }}
+              className="absolute inset-0 w-1/2 skew-x-[-20deg] bg-gradient-to-r from-transparent via-amber-200/25 to-transparent pointer-events-none"
+            />
+            <span className="font-serif text-3xl sm:text-4xl font-bold tracking-[0.14em] bg-gradient-to-b from-amber-100 via-gold to-amber-500 bg-clip-text text-transparent drop-shadow-sm relative z-10">
               FN
             </span>
-            <span className="text-[8px] uppercase tracking-[0.3em] text-amber-200/90 font-bold relative z-10">
-              Forever
+            <div className="flex items-center space-x-1 mt-0.5 relative z-10">
+              <span className="w-3 h-px bg-gold/60" />
+              <Heart size={8} className="text-rose-300 fill-rose-300" />
+              <span className="w-3 h-px bg-gold/60" />
+            </div>
+          </motion.div>
+        </motion.div>
+
+        {/* Arabic Blessing with Blur-to-Sharp Reveal */}
+        <motion.p
+          initial={{ opacity: 0, y: 10, filter: 'blur(6px)' }}
+          animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+          transition={{ duration: 0.8, delay: 0.2 }}
+          className="font-serif text-sm sm:text-base text-amber-200/90 tracking-wide drop-shadow-sm mb-4"
+          dir="rtl"
+        >
+          بَارَكَ اللَّهُ لَكَ وَبَارَكَ عَلَيْكَ وَجَمَعَ بَيْنَكُمَا فِي خَيْرٍ
+        </motion.p>
+
+        {/* Animated Stage Title & Subtitle via AnimatePresence */}
+        <div className="min-h-[96px] flex flex-col items-center justify-center w-full px-3">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={stageIndex}
+              initial={{ opacity: 0, y: 14, filter: 'blur(6px)' }}
+              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: -12, filter: 'blur(6px)' }}
+              transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+              className="space-y-2"
+            >
+              <h2 className="text-2xl sm:text-3xl font-serif font-bold tracking-tight bg-gradient-to-r from-white via-amber-100 to-white bg-clip-text text-transparent">
+                {currentStage.title}
+              </h2>
+              <p className="text-xs sm:text-sm text-amber-100/75 font-serif italic leading-relaxed max-w-md mx-auto">
+                &ldquo;{currentStage.subtitle}&rdquo;
+              </p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Modern Minimalist Progress Track + Stage Indicator Pills */}
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.28, duration: 0.5 }}
+          className="w-full max-w-xs mt-7 space-y-3"
+        >
+          {/* Sleek Progress Track */}
+          <div className="relative h-1.5 w-full rounded-full bg-white/10 overflow-hidden border border-gold/20">
+            <motion.div
+              initial={{ width: '0%' }}
+              animate={{ width: `${progress}%` }}
+              transition={{ type: 'spring', stiffness: 75, damping: 18 }}
+              className="relative h-full rounded-full bg-gradient-to-r from-amber-500 via-gold to-amber-200 shadow-[0_0_16px_rgba(251,191,36,0.9)]"
+            >
+              {/* Bright Glowing Tip */}
+              <span className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,1)]" />
+            </motion.div>
+          </div>
+
+          {/* Stage Dots & Live Percentage */}
+          <div className="flex items-center justify-between text-[10px] font-sans">
+            <div className="flex items-center space-x-1.5">
+              {STAGES.map((st, idx) => {
+                const isActive = idx === stageIndex;
+                const isPassed = idx < stageIndex;
+                return (
+                  <div key={st.key} className="relative flex items-center">
+                    <motion.span
+                      layout
+                      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+                      className={`h-1.5 rounded-full transition-colors ${
+                        isActive
+                          ? 'w-5 bg-gold shadow-[0_0_8px_rgba(212,175,55,0.9)]'
+                          : isPassed
+                          ? 'w-1.5 bg-amber-300/80'
+                          : 'w-1.5 bg-white/20'
+                      }`}
+                    />
+                  </div>
+                );
+              })}
+              <span className="ml-2 text-amber-200/70 tracking-wider uppercase font-medium">
+                {STAGES[stageIndex]?.label}
+              </span>
+            </div>
+
+            <span className="font-mono font-bold text-gold tabular-nums tracking-wider">
+              {progress}%
             </span>
           </div>
+        </motion.div>
 
-          {/* Left Interlocking Ring: Fikri's Gold Band */}
-          <div className="absolute -left-3.5 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full border-2 border-gold-400 bg-black/60 backdrop-blur-xs flex items-center justify-center shadow-lg transform -rotate-12">
-            <span className="text-xs font-serif font-black text-gold">F</span>
-          </div>
-
-          {/* Right Interlocking Ring: Nadya's Diamond Band */}
-          <div className="absolute -right-3.5 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full border-2 border-amber-300 bg-black/60 backdrop-blur-xs flex items-center justify-center shadow-lg transform rotate-12">
-            <span className="text-xs font-serif font-black text-amber-200">N</span>
-          </div>
-
-          {/* Top Beating Heart Badge */}
-          <div className="absolute -top-3.5 w-9 h-9 rounded-full bg-gradient-to-br from-rose-500 to-maroon border border-gold flex items-center justify-center shadow-lg animate-heartbeat">
-            <Heart size={16} className="text-white fill-white" />
-          </div>
-
-          {/* Bottom Sparkle Badge */}
-          <div className="absolute -bottom-3 px-3.5 py-0.5 rounded-full bg-black/70 border border-gold/70 text-gold text-[9px] font-sans font-bold uppercase tracking-widest shadow-md flex items-center space-x-1.5">
-            <Sparkles size={11} className="text-gold" />
-            <span>Walimatul Ursy</span>
-          </div>
-        </div>
+        {/* Bottom Editorial Signature */}
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.55 }}
+          transition={{ delay: 0.45, duration: 0.6 }}
+          className="text-[10px] text-amber-100 font-sans mt-8 uppercase tracking-[0.34em]"
+        >
+          Fikri &amp; Nadya • Walimatul Ursy
+        </motion.p>
       </div>
 
-      {/* ARABIC BLESSING / DOA SNIPPET */}
-      <div className="mb-3 z-10 max-w-lg">
-        <p className="font-serif text-base sm:text-lg text-amber-300/95 tracking-wide drop-shadow-sm select-none" dir="rtl">
-          بَارَكَ اللَّهُ لَكَ وَبَارَكَ عَلَيْكَ وَجَمَعَ بَيْنَكُمَا فِي خَيْرٍ
-        </p>
-      </div>
-
-      {/* DYNAMIC ROMANTIC HEADING & SWEET QUOTE */}
-      <div className="space-y-2 max-w-lg z-10 min-h-[96px] flex flex-col justify-center">
-        <h2 className="text-2xl sm:text-3xl font-serif font-bold text-white tracking-wide drop-shadow-md transition-all duration-300">
-          {statusText}
-        </h2>
-        <p className="text-xs sm:text-sm text-amber-200/90 font-serif italic tracking-wide leading-relaxed px-4 transition-all duration-300">
-          "{subText}"
-        </p>
-      </div>
-
-      {/* ROMANTIC PROGRESS BAR WITH GLOWING HEART POINTER */}
-      <div className="w-80 max-w-xs mt-6 z-10 relative">
-        <div className="w-full bg-black/50 rounded-full h-2.5 p-0.5 border border-gold/40 overflow-hidden shadow-inner backdrop-blur-sm">
-          <div
-            className="bg-gradient-to-r from-amber-400 via-rose-400 to-amber-300 h-full rounded-full transition-all duration-500 ease-out shadow-[0_0_15px_rgba(251,191,36,0.9)]"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        
-        {/* Floating percentage and love note */}
-        <div className="flex items-center justify-between text-[10px] font-sans font-semibold text-amber-200/80 mt-2 px-1">
-          <span>Menuju Bahtera Bahagia</span>
-          <span className="font-mono text-gold font-bold flex items-center space-x-1">
-            <Heart size={10} className="fill-rose-400 text-rose-400 inline" />
-            <span>{progress}%</span>
-          </span>
-        </div>
-      </div>
-
-      <p className="text-[10px] text-stone-400 font-sans mt-5 uppercase tracking-[0.3em] z-10">
-        Fikri &amp; Nadya Wedding Celebration
-      </p>
-
-      {/* Subtle Skip button in corner */}
-      <button
+      {/* Tactile Skip Button */}
+      <motion.button
+        type="button"
         onClick={handleSkip}
-        className="absolute bottom-5 right-6 z-20 text-[11px] font-sans text-white/40 hover:text-white/80 transition-colors uppercase tracking-wider py-1 px-2.5 rounded-full border border-white/10 hover:border-white/30 backdrop-blur-xs"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+        whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,255,255,0.12)' }}
+        whileTap={{ scale: 0.95 }}
+        className="absolute bottom-6 right-6 sm:bottom-8 sm:right-8 z-20 inline-flex items-center space-x-1.5 text-[11px] font-sans font-medium text-amber-100/70 hover:text-white uppercase tracking-[0.2em] py-2 px-4 rounded-full border border-gold/25 hover:border-gold/60 bg-white/[0.04] backdrop-blur-md transition-colors cursor-pointer"
       >
-        Lewati &rarr;
-      </button>
-    </div>
+        <span>Lewati</span>
+        <ArrowRight size={13} className="text-gold" />
+      </motion.button>
+    </motion.div>
   );
 };
 

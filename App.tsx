@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import toast, { Toaster } from 'react-hot-toast';
 import { supabase, checkAndClearLoginInProgress } from './supabase';
 import Layout from './components/Layout';
@@ -118,39 +119,90 @@ const App: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#1b0205] via-[#36040a] to-[#120103] text-white p-6 text-center font-serif relative overflow-hidden select-none">
-        {/* Soft background glow */}
-        <div className="absolute w-80 h-80 bg-rose-600/20 rounded-full blur-[100px] pointer-events-none animate-pulse-aura" />
-        
-        {/* Animated Centerpiece */}
-        <div className="relative mb-6 z-10">
-          <div className="w-28 h-28 border-2 border-gold-300/40 rounded-full animate-ring-glow flex items-center justify-center relative">
-            <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-gold-300 animate-spin" style={{ animationDuration: '3.5s' }} />
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#7a0c17] to-[#4e070e] border border-gold flex flex-col items-center justify-center shadow-2xl">
-              <span className="text-gold font-serif text-2xl font-black tracking-widest drop-shadow">FN</span>
-              <span className="text-[7px] uppercase tracking-[0.25em] text-amber-200 font-bold">Forever</span>
-            </div>
-            {/* Beating Heart Badge */}
-            <div className="absolute -top-2 w-7 h-7 rounded-full bg-rose-600 border border-gold flex items-center justify-center shadow-md animate-heartbeat">
-              <HeartIcon size={12} className="text-white fill-white" />
-            </div>
-          </div>
-        </div>
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#140204] text-white p-6 text-center font-serif relative overflow-hidden select-none">
+        {/* Royal Velvet Radial Backdrop */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_#3b060d_0%,_#1d0206_55%,_#0d0102_100%)] pointer-events-none" />
+
+        {/* Organic Breathing Aura */}
+        <motion.div
+          animate={{ scale: [1, 1.15, 1], opacity: [0.25, 0.42, 0.25] }}
+          transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+          className="absolute w-96 h-96 bg-gradient-to-tr from-[#800000]/40 via-[#d4af37]/20 to-rose-500/20 rounded-full blur-[110px] pointer-events-none"
+        />
+
+        {/* Animated Motion Centerpiece */}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.85 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 240, damping: 22 }}
+          className="relative mb-7 z-10 flex items-center justify-center"
+        >
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
+            className="w-32 h-32 flex items-center justify-center relative"
+          >
+            <svg viewBox="0 0 140 140" className="w-full h-full">
+              <circle
+                cx="70"
+                cy="70"
+                r="64"
+                fill="none"
+                stroke="rgba(212,175,55,0.25)"
+                strokeWidth="1"
+                strokeDasharray="3 5"
+              />
+              <motion.circle
+                cx="70"
+                cy="70"
+                r="57"
+                fill="none"
+                stroke="#D4AF37"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                initial={{ pathLength: 0.15 }}
+                animate={{ pathLength: [0.15, 0.85, 0.15] }}
+                transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            </svg>
+            <span className="absolute top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-amber-200 shadow-[0_0_10px_rgba(253,230,138,1)]" />
+          </motion.div>
+
+          <motion.div
+            animate={{ y: [0, -3, 0] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            className="absolute w-20 h-20 rounded-2xl bg-gradient-to-br from-[#7c0b16] via-[#53050d] to-[#2d0207] border border-gold/70 flex flex-col items-center justify-center shadow-[0_10px_30px_rgba(212,175,55,0.3)] overflow-hidden"
+          >
+            <span className="font-serif text-2xl font-bold tracking-[0.14em] bg-gradient-to-b from-amber-100 via-gold to-amber-500 bg-clip-text text-transparent">
+              FN
+            </span>
+            <HeartIcon size={9} className="text-rose-300 fill-rose-300 mt-0.5" />
+          </motion.div>
+        </motion.div>
 
         {/* Text and Arabic Blessing */}
-        <div className="space-y-2 z-10 max-w-sm">
-          <p className="font-serif text-xs sm:text-sm text-amber-300/85 tracking-wider drop-shadow-sm select-none" dir="rtl">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.6 }}
+          className="space-y-2 z-10 max-w-sm"
+        >
+          <p className="font-serif text-xs sm:text-sm text-amber-200/85 tracking-wider drop-shadow-sm select-none" dir="rtl">
             بَارَكَ اللَّهُ لَكَ وَبَارَكَ عَلَيْكَ وَجَمَعَ بَيْنَكُمَا فِي خَيْرٍ
           </p>
-          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-wide">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-wide bg-gradient-to-r from-white via-amber-100 to-white bg-clip-text text-transparent">
             Fikri &amp; Nadya
           </h2>
-          <p className="text-xs text-amber-200/90 font-serif italic tracking-wider animate-pulse">
+          <motion.p
+            animate={{ opacity: [0.55, 1, 0.55] }}
+            transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+            className="text-xs text-amber-200/85 font-serif italic tracking-wider"
+          >
             Menata Setiap Detil Bahagia Menuju Hari Istimewa...
-          </p>
-        </div>
+          </motion.p>
+        </motion.div>
 
-        <p className="text-[9px] text-stone-400 font-sans mt-8 uppercase tracking-[0.3em] z-10">
+        <p className="text-[9px] text-amber-100/45 font-sans mt-8 uppercase tracking-[0.32em] z-10">
           Private Wedding Portal
         </p>
       </div>
@@ -174,14 +226,17 @@ const App: React.FC = () => {
       }} />
 
       {/* Overlay Animasi Loading Romantis & So Sweet Menuju Dashboard Saat User Berhasil Login */}
-      {isLoginTransitioning && (
-        <RomanticLoginOverlay
-          user={loginUser || session?.user}
-          onComplete={() => {
-            setIsLoginTransitioning(false);
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {isLoginTransitioning && (
+          <RomanticLoginOverlay
+            key="romantic-login-overlay"
+            user={loginUser || session?.user}
+            onComplete={() => {
+              setIsLoginTransitioning(false);
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Pengawas Waktu Sesi (Inaktivitas 40 Menit & Auto-Logout dengan Peringatan Modal) */}
       <SessionTimeoutManager session={session} onLogout={handleAutoLogout} />

@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, logActivity } from '../supabase';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Heart, 
   Sparkles, 
   Users, 
   CheckCircle2, 
-  Clock, 
-  Calendar, 
   History, 
   ChevronRight, 
   Plus, 
@@ -17,7 +16,6 @@ import {
   Edit3, 
   BookmarkCheck,
   Send,
-  UserCheck,
   QrCode,
   Copy
 } from 'lucide-react';
@@ -43,6 +41,35 @@ interface DashboardStats {
   latestMessage: any | null;
   recentLogs: any[];
 }
+
+const pageContainerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.07,
+      delayChildren: 0.05,
+    },
+  },
+};
+
+const sectionItemVariants = {
+  hidden: { opacity: 0, y: 18 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      type: 'spring' as const,
+      stiffness: 280,
+      damping: 25,
+    },
+  },
+};
+
+const cardHoverSpring = {
+  y: -4,
+  transition: { type: 'spring' as const, stiffness: 380, damping: 24 },
+};
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -245,18 +272,58 @@ const Dashboard: React.FC = () => {
   const isFikri = user?.email?.toLowerCase().includes('fikri');
   const partnerName = isFikri ? 'Nadya' : 'Fikri';
 
+  const prepTabs: { key: 'all' | 'lamaran' | 'pernikahan'; label: string }[] = [
+    { key: 'all', label: 'Semua' },
+    { key: 'lamaran', label: 'Lamaran' },
+    { key: 'pernikahan', label: 'Pernikahan' },
+  ];
+
+  const currentTotal = prepTab === 'all' ? totalItems : prepTab === 'lamaran' ? stats.totalLamaran : stats.totalPernikahan;
+  const currentDone = prepTab === 'all' ? totalDone : prepTab === 'lamaran' ? stats.lamaranDone : stats.pernikahanDone;
+  const currentDicicil = prepTab === 'all' ? totalDicicil : prepTab === 'lamaran' ? stats.lamaranDicicil : stats.pernikahanDicicil;
+  const currentBelum = prepTab === 'all' ? totalBelum : prepTab === 'lamaran' ? stats.lamaranBelum : stats.pernikahanBelum;
+
+  const donePct = currentTotal > 0 ? (currentDone / currentTotal) * 100 : 0;
+  const dicicilPct = currentTotal > 0 ? (currentDicicil / currentTotal) * 100 : 0;
+  const belumPct = currentTotal > 0 ? (currentBelum / currentTotal) * 100 : 0;
+
   return (
-    <div className="space-y-8 pb-12 font-sans selection:bg-maroon selection:text-gold">
+    <motion.div
+      variants={pageContainerVariants}
+      initial="hidden"
+      animate="visible"
+      className="space-y-8 pb-12 font-sans selection:bg-maroon selection:text-gold"
+    >
       
       {/* 1. HERO HEADER WITH COUNTDOWN */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 pb-6 border-b border-gold-200/50">
+      <motion.div
+        variants={sectionItemVariants}
+        className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 pb-6 border-b border-gold-200/50"
+      >
         <div>
-          <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-gold-50 border border-gold-300 text-gold-800 text-[11px] font-bold uppercase tracking-wider mb-2">
-            <Sparkles size={12} className="text-gold-600" />
+          <motion.div
+            whileHover={{ scale: 1.03 }}
+            className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-gold-50 border border-gold-300 text-gold-800 text-[11px] font-bold uppercase tracking-wider mb-2 cursor-default"
+          >
+            <motion.span
+              animate={{ rotate: [0, 15, -10, 0] }}
+              transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+              className="inline-flex"
+            >
+              <Sparkles size={12} className="text-gold-600" />
+            </motion.span>
             <span>Pusat Kendali Pernikahan</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-bold text-maroon leading-tight tracking-tight">
-            Halo, <span className="text-gold-600">{isFikri ? 'Calon Suami Nadya' : 'Calon Istri Fikri'} ❤️</span>
+          </motion.div>
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-serif font-bold text-maroon leading-tight tracking-tight flex flex-wrap items-center gap-x-2">
+            <span>Halo,</span>
+            <span className="text-gold-600">{isFikri ? 'Calon Suami Nadya' : 'Calon Istri Fikri'}</span>
+            <motion.span
+              animate={{ scale: [1, 1.18, 1, 1.12, 1] }}
+              transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 2, ease: 'easeInOut' }}
+              className="inline-block"
+            >
+              ❤️
+            </motion.span>
           </h1>
           <p className="text-gray-500 text-sm sm:text-base mt-2 font-normal">
             Pantau setiap langkah persiapan hari bahagia kita berdua dengan tenang.
@@ -271,10 +338,13 @@ const Dashboard: React.FC = () => {
           ].map((ev, i) => {
             const diff = getDaysDiff(ev.date);
             return (
-              <div 
-                key={i} 
+              <motion.div
+                key={i}
+                whileHover={{ y: -3, scale: 1.015 }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ type: 'spring', stiffness: 380, damping: 24 }}
                 onClick={() => handleOpenDateModal(ev.mod)}
-                className="group bg-white hover:bg-gold-50/40 p-4 sm:p-5 rounded-2xl border border-gold-200/80 shadow-sm hover:shadow-md transition-all cursor-pointer flex items-center space-x-4 min-w-[240px]"
+                className="group bg-white hover:bg-gold-50/40 p-4 sm:p-5 rounded-2xl border border-gold-200/80 shadow-sm hover:shadow-md transition-colors cursor-pointer flex items-center space-x-4 min-w-[240px]"
               >
                 <div className={`p-3 rounded-xl border ${ev.color} group-hover:scale-105 transition-transform`}>
                   <ev.icon size={22} />
@@ -293,51 +363,68 @@ const Dashboard: React.FC = () => {
                       : 'Klik Atur Tanggal'}
                   </p>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
-      </div>
+      </motion.div>
 
       {/* 2. TOP METRIC HIGHLIGHTS (Bento 4-Card Overview - 0% Financial) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <motion.div
+        variants={sectionItemVariants}
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5"
+      >
         
         {/* Card 1: Readiness Score */}
-        <div className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+        <motion.div
+          whileHover={cardHoverSpring}
+          className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-lg hover:shadow-maroon/5 transition-shadow relative overflow-hidden group"
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Tingkat Kesiapan</span>
-            <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+            <motion.div
+              whileHover={{ rotate: 12, scale: 1.08 }}
+              className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100"
+            >
               <CheckCircle2 size={18} />
-            </div>
+            </motion.div>
           </div>
           <div className="mt-4 flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-maroon font-serif">{readinessPercent}%</span>
+            <span className="text-3xl font-extrabold text-maroon font-serif tabular-nums">{readinessPercent}%</span>
             <span className="text-xs font-medium text-gray-400">Siap terlaksana</span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-2 mt-3 overflow-hidden">
-            <div 
-              className="bg-gradient-to-r from-emerald-500 to-emerald-600 h-2 rounded-full transition-all duration-700" 
-              style={{ width: `${Math.min(100, readinessPercent)}%` }}
-            ></div>
+            <motion.div
+              initial={{ width: '0%' }}
+              animate={{ width: `${Math.min(100, readinessPercent)}%` }}
+              transition={{ type: 'spring', stiffness: 70, damping: 18, delay: 0.2 }}
+              className="bg-gradient-to-r from-emerald-500 to-emerald-600 h-2 rounded-full"
+            />
           </div>
           <p className="text-[11px] text-gray-400 mt-2.5 font-medium">
             {totalDone} dari {totalItems} keperluan sudah siap
           </p>
-        </div>
+        </motion.div>
 
         {/* Card 2: Items Preparation */}
-        <div className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+        <motion.div
+          whileHover={cardHoverSpring}
+          className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-lg hover:shadow-maroon/5 transition-shadow relative overflow-hidden group"
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Keperluan Acara</span>
-            <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-100">
+            <motion.div
+              whileHover={{ rotate: -10, scale: 1.08 }}
+              className="p-2.5 rounded-xl bg-rose-50 text-rose-600 border border-rose-100"
+            >
               <BookmarkCheck size={18} />
-            </div>
+            </motion.div>
           </div>
           <div className="mt-4 flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-maroon font-serif">{totalItems}</span>
+            <span className="text-3xl font-extrabold text-maroon font-serif tabular-nums">{totalItems}</span>
             <span className="text-xs font-medium text-gray-400">Item tercatat</span>
           </div>
-          <div className="flex items-center space-x-2 mt-3 text-[11px] font-semibold text-gray-500">
+          <div className="flex items-center flex-wrap gap-1.5 mt-3 text-[11px] font-semibold text-gray-500">
             <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">{totalDone} Done</span>
             <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-100">{totalDicicil} Dicicil</span>
             <span className="px-2 py-0.5 rounded-md bg-gray-50 text-gray-600 border border-gray-100">{totalBelum} Belum</span>
@@ -345,48 +432,64 @@ const Dashboard: React.FC = () => {
           <p className="text-[11px] text-gray-400 mt-2 font-medium">
             Lamaran ({stats.totalLamaran}) • Pernikahan ({stats.totalPernikahan})
           </p>
-        </div>
+        </motion.div>
 
         {/* Card 3: Guest Estimation */}
-        <div className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+        <motion.div
+          whileHover={cardHoverSpring}
+          className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-lg hover:shadow-maroon/5 transition-shadow relative overflow-hidden group"
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Estimasi Tamu</span>
-            <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+            <motion.div
+              whileHover={{ scale: 1.1 }}
+              className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100"
+            >
               <Users size={18} />
-            </div>
+            </motion.div>
           </div>
           <div className="mt-4 flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-maroon font-serif">{stats.totalTamuPax}</span>
+            <span className="text-3xl font-extrabold text-maroon font-serif tabular-nums">{stats.totalTamuPax}</span>
             <span className="text-xs font-medium text-gray-400">Total Pax</span>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-2 mt-3 flex overflow-hidden">
-            <div 
-              style={{ width: `${stats.totalTamuPax > 0 ? (stats.tamuFikriPax / stats.totalTamuPax) * 100 : 50}%` }} 
-              className="bg-blue-500 h-2" 
+            <motion.div
+              initial={{ width: '0%' }}
+              animate={{ width: `${stats.totalTamuPax > 0 ? (stats.tamuFikriPax / stats.totalTamuPax) * 100 : 50}%` }}
+              transition={{ type: 'spring', stiffness: 70, damping: 18, delay: 0.25 }}
+              className="bg-blue-500 h-2"
               title={`Fikri: ${stats.tamuFikriPax} Pax`}
-            ></div>
-            <div 
-              style={{ width: `${stats.totalTamuPax > 0 ? (stats.tamuNadyaPax / stats.totalTamuPax) * 100 : 50}%` }} 
-              className="bg-rose-400 h-2" 
+            />
+            <motion.div
+              initial={{ width: '0%' }}
+              animate={{ width: `${stats.totalTamuPax > 0 ? (stats.tamuNadyaPax / stats.totalTamuPax) * 100 : 50}%` }}
+              transition={{ type: 'spring', stiffness: 70, damping: 18, delay: 0.3 }}
+              className="bg-rose-400 h-2"
               title={`Nadya: ${stats.tamuNadyaPax} Pax`}
-            ></div>
+            />
           </div>
           <div className="flex justify-between items-center text-[10px] text-gray-400 mt-2 font-bold uppercase">
             <span>Fikri: {stats.tamuFikriPax} Pax</span>
             <span>Nadya: {stats.tamuNadyaPax} Pax</span>
           </div>
-        </div>
+        </motion.div>
 
         {/* Card 4: Moodboard & Ideas */}
-        <div className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-md transition-all relative overflow-hidden group">
+        <motion.div
+          whileHover={cardHoverSpring}
+          className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-lg hover:shadow-maroon/5 transition-shadow relative overflow-hidden group"
+        >
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Papan Inspirasi</span>
-            <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600 border border-amber-100">
+            <motion.div
+              whileHover={{ rotate: 15, scale: 1.08 }}
+              className="p-2.5 rounded-xl bg-amber-50 text-amber-600 border border-amber-100"
+            >
               <Lightbulb size={18} />
-            </div>
+            </motion.div>
           </div>
           <div className="mt-4 flex items-baseline space-x-2">
-            <span className="text-3xl font-extrabold text-maroon font-serif">{stats.totalIdeas}</span>
+            <span className="text-3xl font-extrabold text-maroon font-serif tabular-nums">{stats.totalIdeas}</span>
             <span className="text-xs font-medium text-gray-400">Ide & Konsep</span>
           </div>
           <div className="flex items-center space-x-2 mt-3">
@@ -401,9 +504,9 @@ const Dashboard: React.FC = () => {
           <p className="text-[11px] text-gray-400 mt-2.5 font-medium truncate">
             Diskusikan dekor, busana, & tema
           </p>
-        </div>
+        </motion.div>
 
-      </div>
+      </motion.div>
 
       {/* 3. MAIN BENTO GRID (Detailed Progress & Couple Space) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -412,117 +515,173 @@ const Dashboard: React.FC = () => {
         <div className="lg:col-span-8 space-y-6">
           
           {/* Card: Status Kesiapan Persiapan (Lamaran vs Pernikahan) */}
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gold-200/70 shadow-sm space-y-6">
+          <motion.div
+            variants={sectionItemVariants}
+            className="bg-white p-6 sm:p-8 rounded-3xl border border-gold-200/70 shadow-sm space-y-6"
+          >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4">
               <div>
                 <h2 className="text-xl font-serif font-bold text-maroon">Progress Kesiapan Acara</h2>
                 <p className="text-xs text-gray-400 mt-0.5">Pantau status penyelesaian item tanpa beban angka biaya</p>
               </div>
 
-              {/* Tab Selector */}
-              <div className="flex items-center p-1 bg-gray-50 rounded-xl border border-gray-200/80 self-start sm:self-auto text-xs font-bold">
-                <button 
-                  onClick={() => setPrepTab('all')}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${prepTab === 'all' ? 'bg-maroon text-gold shadow-sm' : 'text-gray-500 hover:text-maroon'}`}
-                >
-                  Semua
-                </button>
-                <button 
-                  onClick={() => setPrepTab('lamaran')}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${prepTab === 'lamaran' ? 'bg-maroon text-gold shadow-sm' : 'text-gray-500 hover:text-maroon'}`}
-                >
-                  Lamaran
-                </button>
-                <button 
-                  onClick={() => setPrepTab('pernikahan')}
-                  className={`px-3 py-1.5 rounded-lg transition-all ${prepTab === 'pernikahan' ? 'bg-maroon text-gold shadow-sm' : 'text-gray-500 hover:text-maroon'}`}
-                >
-                  Pernikahan
-                </button>
+              {/* Sliding Tab Selector powered by Motion layoutId */}
+              <div className="flex items-center p-1 bg-gray-50 rounded-xl border border-gray-200/80 self-start sm:self-auto text-xs font-bold relative">
+                {prepTabs.map((tab) => {
+                  const isActive = prepTab === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      onClick={() => setPrepTab(tab.key)}
+                      className={`relative px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer z-10 ${
+                        isActive ? 'text-gold' : 'text-gray-500 hover:text-maroon'
+                      }`}
+                    >
+                      {isActive && (
+                        <motion.span
+                          layoutId="dashboardPrepTabPill"
+                          transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+                          className="absolute inset-0 bg-maroon rounded-lg shadow-sm -z-10"
+                        />
+                      )}
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Visual Breakdown Bar */}
-            {(() => {
-              const currentTotal = prepTab === 'all' ? totalItems : prepTab === 'lamaran' ? stats.totalLamaran : stats.totalPernikahan;
-              const currentDone = prepTab === 'all' ? totalDone : prepTab === 'lamaran' ? stats.lamaranDone : stats.pernikahanDone;
-              const currentDicicil = prepTab === 'all' ? totalDicicil : prepTab === 'lamaran' ? stats.lamaranDicicil : stats.pernikahanDicicil;
-              const currentBelum = prepTab === 'all' ? totalBelum : prepTab === 'lamaran' ? stats.lamaranBelum : stats.pernikahanBelum;
+            {/* Visual Breakdown Bar with Spring Transitions */}
+            <div className="space-y-4">
+              <div className="w-full h-4 bg-gray-100 rounded-full flex overflow-hidden shadow-inner">
+                <motion.div
+                  initial={{ width: '0%' }}
+                  animate={{ width: `${donePct}%` }}
+                  transition={{ type: 'spring', stiffness: 90, damping: 20 }}
+                  className="bg-emerald-500 h-full"
+                  title={`Selesai: ${currentDone}`}
+                />
+                <motion.div
+                  initial={{ width: '0%' }}
+                  animate={{ width: `${dicicilPct}%` }}
+                  transition={{ type: 'spring', stiffness: 90, damping: 20 }}
+                  className="bg-amber-400 h-full"
+                  title={`Dicicil: ${currentDicicil}`}
+                />
+                <motion.div
+                  initial={{ width: '0%' }}
+                  animate={{ width: `${belumPct}%` }}
+                  transition={{ type: 'spring', stiffness: 90, damping: 20 }}
+                  className="bg-rose-300 h-full"
+                  title={`Belum Terbeli: ${currentBelum}`}
+                />
+              </div>
 
-              const donePct = currentTotal > 0 ? (currentDone / currentTotal) * 100 : 0;
-              const dicicilPct = currentTotal > 0 ? (currentDicicil / currentTotal) * 100 : 0;
-              const belumPct = currentTotal > 0 ? (currentBelum / currentTotal) * 100 : 0;
-
-              return (
-                <div className="space-y-4">
-                  <div className="w-full h-4 bg-gray-100 rounded-full flex overflow-hidden shadow-inner">
-                    <div style={{ width: `${donePct}%` }} className="bg-emerald-500 transition-all duration-500" title={`Selesai: ${currentDone}`}></div>
-                    <div style={{ width: `${dicicilPct}%` }} className="bg-amber-400 transition-all duration-500" title={`Dicicil: ${currentDicicil}`}></div>
-                    <div style={{ width: `${belumPct}%` }} className="bg-rose-300 transition-all duration-500" title={`Belum Terbeli: ${currentBelum}`}></div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3 pt-2">
-                    <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex flex-col justify-between">
-                      <div className="flex items-center space-x-1.5 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        <span>Selesai (Done)</span>
-                      </div>
-                      <p className="text-2xl font-serif font-bold text-emerald-900 mt-2">{currentDone} <span className="text-xs font-sans font-medium text-emerald-700">item</span></p>
-                      <p className="text-[10px] text-emerald-600 font-semibold mt-1">{Math.round(donePct)}% terselesaikan</p>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={prepTab}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+                  className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2"
+                >
+                  <motion.div
+                    whileHover={{ y: -2, scale: 1.01 }}
+                    transition={{ type: 'spring', stiffness: 360, damping: 24 }}
+                    className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-100 flex flex-col justify-between"
+                  >
+                    <div className="flex items-center space-x-1.5 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      <span>Selesai (Done)</span>
                     </div>
+                    <p className="text-2xl font-serif font-bold text-emerald-900 mt-2 tabular-nums">
+                      {currentDone} <span className="text-xs font-sans font-medium text-emerald-700">item</span>
+                    </p>
+                    <p className="text-[10px] text-emerald-600 font-semibold mt-1">{Math.round(donePct)}% terselesaikan</p>
+                  </motion.div>
 
-                    <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-100 flex flex-col justify-between">
-                      <div className="flex items-center space-x-1.5 text-amber-800 text-[11px] font-bold uppercase tracking-wider">
-                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                        <span>Sedang Dicicil</span>
-                      </div>
-                      <p className="text-2xl font-serif font-bold text-amber-900 mt-2">{currentDicicil} <span className="text-xs font-sans font-medium text-amber-700">item</span></p>
-                      <p className="text-[10px] text-amber-600 font-semibold mt-1">{Math.round(dicicilPct)}% proses berjalan</p>
+                  <motion.div
+                    whileHover={{ y: -2, scale: 1.01 }}
+                    transition={{ type: 'spring', stiffness: 360, damping: 24 }}
+                    className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-100 flex flex-col justify-between"
+                  >
+                    <div className="flex items-center space-x-1.5 text-amber-800 text-[11px] font-bold uppercase tracking-wider">
+                      <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                      <span>Sedang Dicicil</span>
                     </div>
+                    <p className="text-2xl font-serif font-bold text-amber-900 mt-2 tabular-nums">
+                      {currentDicicil} <span className="text-xs font-sans font-medium text-amber-700">item</span>
+                    </p>
+                    <p className="text-[10px] text-amber-600 font-semibold mt-1">{Math.round(dicicilPct)}% proses berjalan</p>
+                  </motion.div>
 
-                    <div className="p-3.5 rounded-2xl bg-rose-50/60 border border-rose-100 flex flex-col justify-between">
-                      <div className="flex items-center space-x-1.5 text-rose-800 text-[11px] font-bold uppercase tracking-wider">
-                        <span className="w-2 h-2 rounded-full bg-rose-400"></span>
-                        <span>Belum Selesai</span>
-                      </div>
-                      <p className="text-2xl font-serif font-bold text-rose-900 mt-2">{currentBelum} <span className="text-xs font-sans font-medium text-rose-700">item</span></p>
-                      <p className="text-[10px] text-rose-600 font-semibold mt-1">{Math.round(belumPct)}% perlu dipersiapkan</p>
+                  <motion.div
+                    whileHover={{ y: -2, scale: 1.01 }}
+                    transition={{ type: 'spring', stiffness: 360, damping: 24 }}
+                    className="p-3.5 rounded-2xl bg-rose-50/60 border border-rose-100 flex flex-col justify-between"
+                  >
+                    <div className="flex items-center space-x-1.5 text-rose-800 text-[11px] font-bold uppercase tracking-wider">
+                      <span className="w-2 h-2 rounded-full bg-rose-400"></span>
+                      <span>Belum Selesai</span>
                     </div>
-                  </div>
-                </div>
-              );
-            })()}
+                    <p className="text-2xl font-serif font-bold text-rose-900 mt-2 tabular-nums">
+                      {currentBelum} <span className="text-xs font-sans font-medium text-rose-700">item</span>
+                    </p>
+                    <p className="text-[10px] text-rose-600 font-semibold mt-1">{Math.round(belumPct)}% perlu dipersiapkan</p>
+                  </motion.div>
+                </motion.div>
+              </AnimatePresence>
+            </div>
 
             {/* Quick jump to tables */}
             <div className="flex items-center justify-end space-x-3 pt-2">
-              <button 
-                onClick={() => navigate('/lamaran')} 
-                className="text-xs font-bold text-maroon hover:text-gold-700 flex items-center space-x-1 transition-colors"
+              <motion.button
+                whileHover={{ x: 2 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => navigate('/lamaran')}
+                className="text-xs font-bold text-maroon hover:text-gold-700 flex items-center space-x-1 transition-colors cursor-pointer"
               >
                 <span>Buka Keperluan Lamaran</span>
                 <ChevronRight size={14} />
-              </button>
+              </motion.button>
               <span className="text-gray-300">•</span>
-              <button 
-                onClick={() => navigate('/pernikahan')} 
-                className="text-xs font-bold text-maroon hover:text-gold-700 flex items-center space-x-1 transition-colors"
+              <motion.button
+                whileHover={{ x: 2 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => navigate('/pernikahan')}
+                className="text-xs font-bold text-maroon hover:text-gold-700 flex items-center space-x-1 transition-colors cursor-pointer"
               >
                 <span>Buka Keperluan Pernikahan</span>
                 <ChevronRight size={14} />
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
 
           {/* Card: Quick Actions Bar (Jalan Pintas Cepat) */}
-          <div className="bg-gradient-to-br from-gold-50/70 via-white to-gold-50/30 p-6 sm:p-7 rounded-3xl border border-gold-200/80 shadow-sm space-y-4">
+          <motion.div
+            variants={sectionItemVariants}
+            className="bg-gradient-to-br from-gold-50/70 via-white to-gold-50/30 p-6 sm:p-7 rounded-3xl border border-gold-200/80 shadow-sm space-y-4"
+          >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-serif font-bold text-maroon">Jalan Pintas Cepat</h3>
               <span className="text-[11px] text-gray-400 font-medium">Akses langsung fitur utama</span>
             </div>
 
             {/* Reception Desk & Public RSVP Banner */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-maroon via-maroon-900 to-[#550B14] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
-              <div className="flex items-center space-x-3.5">
+            <motion.div
+              whileHover={{ scale: 1.008 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+              className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-maroon via-maroon-900 to-[#550B14] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md relative overflow-hidden"
+            >
+              {/* Subtle Ambient Sheen */}
+              <motion.div
+                animate={{ opacity: [0.08, 0.2, 0.08], x: [-20, 20, -20] }}
+                transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+                className="absolute -right-12 -top-12 w-48 h-48 rounded-full bg-gold/25 blur-3xl pointer-events-none"
+              />
+
+              <div className="flex items-center space-x-3.5 relative z-10">
                 <div className="w-11 h-11 rounded-xl bg-gold-400/20 border border-gold-400/30 flex items-center justify-center text-gold shrink-0">
                   <QrCode size={24} />
                 </div>
@@ -531,74 +690,56 @@ const Dashboard: React.FC = () => {
                   <p className="text-xs text-amber-100/80 mt-0.5">Form pendaftaran tamu publik & scanner kehadiran di meja resepsi</p>
                 </div>
               </div>
-              <div className="flex items-center space-x-2 shrink-0">
-                <button
+              <div className="flex items-center space-x-2 shrink-0 relative z-10">
+                <motion.button
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
                   onClick={() => {
                     const url = `${window.location.origin}/#/guest-pass`;
                     navigator.clipboard.writeText(url);
                     toast.success('Link Form Tamu disalin!');
                   }}
-                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-gold-200 text-xs font-bold border border-white/15 transition-all flex items-center space-x-1.5"
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-gold-200 text-xs font-bold border border-white/15 transition-colors flex items-center space-x-1.5 cursor-pointer"
                 >
                   <Copy size={13} />
                   <span>Salin Link Tamu</span>
-                </button>
-                <button
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
                   onClick={() => navigate('/administrasi-tamu')}
-                  className="px-4 py-2 rounded-xl bg-gold text-maroon hover:bg-gold-400 text-xs font-bold transition-all shadow-sm flex items-center space-x-1"
+                  className="px-4 py-2 rounded-xl bg-gold text-maroon hover:bg-gold-400 text-xs font-bold transition-colors shadow-sm flex items-center space-x-1 cursor-pointer"
                 >
                   <span>Buka Meja Tamu</span>
                   <ChevronRight size={14} />
-                </button>
+                </motion.button>
               </div>
-            </div>
+            </motion.div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <button 
-                onClick={() => navigate('/tamu')}
-                className="p-3.5 bg-white hover:bg-gold-50 rounded-2xl border border-gold-200/80 text-left transition-all hover:-translate-y-0.5 shadow-sm group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
-                  <Plus size={16} />
-                </div>
-                <p className="text-xs font-bold text-maroon-900 leading-snug">Daftar Tamu</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Tambah undangan</p>
-              </button>
-
-              <button 
-                onClick={() => navigate('/ideas')}
-                className="p-3.5 bg-white hover:bg-gold-50 rounded-2xl border border-gold-200/80 text-left transition-all hover:-translate-y-0.5 shadow-sm group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
-                  <Lightbulb size={16} />
-                </div>
-                <p className="text-xs font-bold text-maroon-900 leading-snug">Papan Ide</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Tulis inspirasi baru</p>
-              </button>
-
-              <button 
-                onClick={() => navigate('/messages')}
-                className="p-3.5 bg-white hover:bg-gold-50 rounded-2xl border border-gold-200/80 text-left transition-all hover:-translate-y-0.5 shadow-sm group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
-                  <Send size={16} />
-                </div>
-                <p className="text-xs font-bold text-maroon-900 leading-snug">Pesan Cinta</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Chat pasangan</p>
-              </button>
-
-              <button 
-                onClick={() => navigate('/prayers')}
-                className="p-3.5 bg-white hover:bg-gold-50 rounded-2xl border border-gold-200/80 text-left transition-all hover:-translate-y-0.5 shadow-sm group"
-              >
-                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
-                  <Heart size={16} />
-                </div>
-                <p className="text-xs font-bold text-maroon-900 leading-snug">Doa & Amalan</p>
-                <p className="text-[10px] text-gray-400 mt-0.5">Penenang hati</p>
-              </button>
+              {[
+                { label: 'Daftar Tamu', sub: 'Tambah undangan', path: '/tamu', icon: Plus, color: 'bg-blue-50 text-blue-600' },
+                { label: 'Papan Ide', sub: 'Tulis inspirasi baru', path: '/ideas', icon: Lightbulb, color: 'bg-amber-50 text-amber-600' },
+                { label: 'Pesan Cinta', sub: 'Chat pasangan', path: '/messages', icon: Send, color: 'bg-rose-50 text-rose-600' },
+                { label: 'Doa & Amalan', sub: 'Penenang hati', path: '/prayers', icon: Heart, color: 'bg-emerald-50 text-emerald-600' },
+              ].map((item) => (
+                <motion.button
+                  key={item.path}
+                  whileHover={{ y: -4, scale: 1.02 }}
+                  whileTap={{ scale: 0.96 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+                  onClick={() => navigate(item.path)}
+                  className="p-3.5 bg-white hover:bg-gold-50/70 rounded-2xl border border-gold-200/80 text-left transition-colors shadow-sm hover:shadow-md group cursor-pointer"
+                >
+                  <div className={`w-8 h-8 rounded-xl ${item.color} flex items-center justify-center mb-2 group-hover:scale-110 transition-transform`}>
+                    <item.icon size={16} />
+                  </div>
+                  <p className="text-xs font-bold text-maroon-900 leading-snug">{item.label}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">{item.sub}</p>
+                </motion.button>
+              ))}
             </div>
-          </div>
+          </motion.div>
 
         </div>
 
@@ -606,7 +747,12 @@ const Dashboard: React.FC = () => {
         <div className="lg:col-span-4 space-y-6">
 
           {/* Card: Couple Private Message Preview */}
-          <div className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm relative overflow-hidden space-y-4">
+          <motion.div
+            variants={sectionItemVariants}
+            whileHover={{ y: -2 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+            className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden space-y-4"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center">
@@ -618,9 +764,13 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
               {stats.unreadMessages > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold animate-pulse">
+                <motion.span
+                  animate={{ scale: [1, 1.08, 1] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+                  className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold"
+                >
                   {stats.unreadMessages} baru
-                </span>
+                </motion.span>
               )}
             </div>
 
@@ -642,36 +792,51 @@ const Dashboard: React.FC = () => {
               )}
             </div>
 
-            <button
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 24 }}
               onClick={() => navigate('/messages')}
-              className="w-full py-2.5 bg-maroon hover:bg-maroon-800 text-gold text-xs font-bold rounded-xl flex items-center justify-center space-x-2 transition-all shadow-sm"
+              className="w-full py-2.5 bg-maroon hover:bg-maroon-800 text-gold text-xs font-bold rounded-xl flex items-center justify-center space-x-2 transition-colors shadow-sm cursor-pointer group"
             >
               <span>Buka Ruang Pesan</span>
-              <ArrowRight size={14} />
-            </button>
-          </div>
+              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+            </motion.button>
+          </motion.div>
 
           {/* Card: Aktivitas Terkini (Activity Feed) */}
-          <div className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm space-y-4">
+          <motion.div
+            variants={sectionItemVariants}
+            className="bg-white p-6 rounded-3xl border border-gold-200/70 shadow-sm space-y-4"
+          >
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div className="flex items-center space-x-2">
                 <History size={16} className="text-gold-700" />
                 <h3 className="text-sm font-serif font-bold text-maroon">Aktivitas Terkini</h3>
               </div>
-              <button 
+              <motion.button
+                whileHover={{ x: 2 }}
+                whileTap={{ scale: 0.96 }}
                 onClick={() => navigate('/logs')}
-                className="text-[11px] font-bold text-gold-700 hover:text-maroon transition-colors"
+                className="text-[11px] font-bold text-gold-700 hover:text-maroon transition-colors cursor-pointer"
               >
                 Lihat Semua
-              </button>
+              </motion.button>
             </div>
 
             <div className="space-y-3.5">
-              {(stats.recentLogs || []).map((log: any) => {
+              {(stats.recentLogs || []).map((log: any, idx: number) => {
                 const userInitial = log.user_email ? log.user_email.charAt(0).toUpperCase() : 'U';
                 const userName = log.user_email ? log.user_email.split('@')[0] : 'User';
                 return (
-                  <div key={log.id} className="flex items-start space-x-3 text-xs">
+                  <motion.div
+                    key={log.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: Math.min(idx * 0.05, 0.3), type: 'spring', stiffness: 300, damping: 24 }}
+                    whileHover={{ x: 4 }}
+                    className="flex items-start space-x-3 text-xs cursor-default"
+                  >
                     <div className="w-7 h-7 rounded-lg bg-gold-50 border border-gold-200 text-maroon font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
                       {userInitial}
                     </div>
@@ -684,7 +849,7 @@ const Dashboard: React.FC = () => {
                         {new Date(log.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
 
@@ -692,21 +857,31 @@ const Dashboard: React.FC = () => {
                 <p className="text-xs text-gray-400 italic text-center py-4">Belum ada aktivitas tercatat.</p>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Card: Doa Hari Ini */}
-          <div className="bg-gradient-to-br from-[#800000] to-[#5a0000] text-white p-6 rounded-3xl shadow-md border border-gold-400/30 relative overflow-hidden space-y-3">
-            <div className="flex items-center space-x-2 text-gold-200 text-xs font-bold uppercase tracking-wider">
+          <motion.div
+            variants={sectionItemVariants}
+            whileHover={{ y: -3, scale: 1.01 }}
+            transition={{ type: 'spring', stiffness: 340, damping: 24 }}
+            className="bg-gradient-to-br from-[#800000] to-[#5a0000] text-white p-6 rounded-3xl shadow-md border border-gold-400/30 relative overflow-hidden space-y-3"
+          >
+            <motion.div
+              animate={{ opacity: [0.12, 0.25, 0.12], scale: [1, 1.12, 1] }}
+              transition={{ duration: 6.5, repeat: Infinity, ease: 'easeInOut' }}
+              className="absolute -bottom-10 -right-10 w-36 h-36 rounded-full bg-gold/25 blur-2xl pointer-events-none"
+            />
+            <div className="flex items-center space-x-2 text-gold-200 text-xs font-bold uppercase tracking-wider relative z-10">
               <Sparkles size={14} className="text-gold" />
               <span>Doa Harian Kita</span>
             </div>
-            <p className="text-xs font-serif italic text-gold-100 leading-relaxed">
+            <p className="text-xs font-serif italic text-gold-100 leading-relaxed relative z-10">
               "Rabbana hab lana min azwajina wa dzurriyyatina qurrata a'yunin waj'alna lil muttaqina imama."
             </p>
-            <p className="text-[11px] text-white/80 font-light leading-relaxed">
+            <p className="text-[11px] text-white/80 font-light leading-relaxed relative z-10">
               Ya Tuhan kami, anugerahkanlah kepada kami pasangan dan keturunan sebagai penyenang hati, dan jadikanlah kami imam bagi orang-orang yang bertakwa.
             </p>
-          </div>
+          </motion.div>
 
         </div>
 
@@ -738,23 +913,27 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="flex justify-end space-x-3 pt-4 border-t border-gray-100">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.96 }}
               onClick={() => setIsDateModalOpen(false)}
-              className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-bold text-xs hover:bg-gray-50 transition-colors"
+              className="px-5 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-bold text-xs hover:bg-gray-50 transition-colors cursor-pointer"
             >
               Batal
-            </button>
-            <button
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.96 }}
               onClick={handleSaveDate}
-              className="px-6 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs shadow-md hover:bg-maroon-800 transition-colors"
+              className="px-6 py-2.5 rounded-xl bg-maroon text-gold font-bold text-xs shadow-md hover:bg-maroon-800 transition-colors cursor-pointer"
             >
               Simpan Tanggal
-            </button>
+            </motion.button>
           </div>
         </div>
       </Modal>
 
-    </div>
+    </motion.div>
   );
 };
 
